@@ -1,0 +1,512 @@
+{% extends "base.html" %}
+{% block body %}
+<div x-data="hub()" x-init="init()" class="min-h-screen">
+
+  <!-- Header -->
+  <header class="border-b border-neutral-200 bg-white">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+        <h1 class="text-base font-semibold tracking-tight">Claude Code Hub</h1>
+        <span class="text-xs text-neutral-500 mono" x-text="location.host"></span>
+      </div>
+      <div class="text-xs text-neutral-500">
+        <span x-text="status"></span>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <nav class="max-w-6xl mx-auto px-6 flex gap-1 -mb-px">
+      <template x-for="t in tabs" :key="t">
+        <button
+          @click="setTab(t)"
+          :class="tab === t ? 'tab-active' : 'tab-inactive'"
+          class="px-3 py-2 text-sm font-medium border-b-2 capitalize transition">
+          <span x-text="t"></span>
+        </button>
+      </template>
+    </nav>
+  </header>
+
+  <!-- Content -->
+  <main class="max-w-6xl mx-auto px-6 py-6">
+
+    <!-- PROJECTS -->
+    <section x-show="tab === 'projects'" x-cloak>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-neutral-700">Proyectos</h2>
+        <button @click="loadProjects()" class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100">↻ Refresh</button>
+      </div>
+      <div class="space-y-2">
+        <template x-for="p in projects" :key="p.path">
+          <div class="bg-white border border-neutral-200 rounded-lg p-4 hover:border-neutral-300 transition">
+            <div class="flex items-start justify-between gap-4">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span :class="dotClass(p)" class="w-2 h-2 rounded-full"></span>
+                  <h3 class="font-medium" x-text="p.name"></h3>
+                  <span class="text-xs text-neutral-500 mono" x-text="branchLabel(p)"></span>
+                </div>
+                <div class="text-xs text-neutral-500 mt-1 truncate mono" x-text="p.path"></div>
+                <div class="text-xs text-neutral-600 mt-2" x-show="p.last_commit">
+                  <span class="mono" x-text="p.last_commit?.hash"></span>
+                  · <span x-text="p.last_commit?.ago"></span>
+                  · <span x-text="p.last_commit?.subject"></span>
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-1 shrink-0" x-show="p.git.is_repo">
+                <button @click="runCmd(p.name, 'git_status')" class="px-2 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">git status</button>
+                <button @click="runCmd(p.name, 'git_pull')" class="px-2 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">git pull</button>
+                <button @click="runCmd(p.name, 'npm_test')" class="px-2 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">tests</button>
+                <button @click="openTmux(p.name)" class="px-2 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">tmux</button>
+              </div>
+            </div>
+          </div>
+        </template>
+        <div x-show="!projects.length" class="text-sm text-neutral-500">Cargando…</div>
+      </div>
+    </section>
+
+    <!-- REPORTS -->
+    <section x-show="tab === 'reports'" x-cloak>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-neutral-700">Reportes Markdown</h2>
+        <button @click="loadReports()" class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100">↻ Refresh</button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <ul class="md:col-span-1 space-y-1">
+          <template x-for="r in reports" :key="r.path">
+            <li>
+              <button @click="openReport(r)"
+                :class="selectedReport?.path === r.path ? 'bg-neutral-100' : 'bg-white'"
+                class="w-full text-left p-2 rounded border border-neutral-200 hover:bg-neutral-100 transition">
+                <div class="text-sm font-medium truncate" x-text="r.filename"></div>
+                <div class="text-xs text-neutral-500 mono" x-text="formatDate(r.mtime)"></div>
+              </button>
+            </li>
+          </template>
+          <li x-show="!reports.length" class="text-sm text-neutral-500 p-2">Sin reportes en <span class="mono">~/reportes</span></li>
+        </ul>
+        <article class="md:col-span-2 bg-white border border-neutral-200 rounded-lg p-6 prose-md min-h-[200px]" x-html="reportHTML"></article>
+      </div>
+    </section>
+
+    <!-- SESSIONS -->
+    <section x-show="tab === 'sessions'" x-cloak>
+
+      <!-- Claude Code sessions -->
+      <div class="mb-8">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-sm font-semibold text-neutral-700">Sesiones Claude Code</h2>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-neutral-500" x-text="claudeSessions.length + ' (' + claudeTelCodeCount + ' tel-code)'"></span>
+            <button @click="loadClaudeSessions()" class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100">↻ Refresh</button>
+          </div>
+        </div>
+
+        <div class="bg-neutral-50 border border-neutral-200 rounded-lg p-3 mb-3 flex items-center gap-2 text-xs flex-wrap">
+          <span class="text-neutral-600">Nueva sesión:</span>
+          <input type="text" x-model="newTitle" maxlength="50" placeholder="título (ej. health-companion-bug)"
+                 @keyup.enter="createClaudeSession()"
+                 class="flex-1 min-w-[200px] px-2 py-1 border border-neutral-300 rounded text-xs" />
+          <button @click="createClaudeSession()" :disabled="!newTitle.trim()"
+                  class="px-2 py-1 rounded border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50 disabled:opacity-40">crear →</button>
+        </div>
+        <div class="bg-neutral-50 border border-neutral-200 rounded-lg p-3 mb-3 flex items-center gap-2 text-xs flex-wrap">
+          <span class="text-neutral-600">Borrar tel-code más viejas que</span>
+          <input type="number" min="0" x-model.number="bulkDays" class="w-16 px-2 py-1 border border-neutral-300 rounded mono text-xs" />
+          <span class="text-neutral-600">días</span>
+          <button @click="bulkDeleteTelCode()" class="px-2 py-1 rounded border border-red-200 bg-white text-red-700 hover:bg-red-50">borrar</button>
+          <span class="text-neutral-500" x-show="bulkResult" x-text="bulkResult"></span>
+        </div>
+
+        <div class="space-y-2">
+          <template x-for="c in claudeSessions" :key="c.id">
+            <div class="bg-white border border-neutral-200 rounded-lg p-3 flex items-center justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span :class="c.tag === 'tel-code' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-neutral-100 text-neutral-700 border-neutral-200'"
+                        class="text-[10px] font-medium px-1.5 py-0.5 rounded border mono uppercase"
+                        x-text="c.tag"></span>
+                  <span class="text-sm font-medium truncate" x-text="c.title"></span>
+                </div>
+                <div class="text-xs text-neutral-500 mt-1 mono">
+                  <span x-text="c.id.slice(0, 8)"></span>
+                  · <span x-text="relativeTime(c.last_activity)"></span>
+                  · <span x-text="c.turn_count + ' turnos'"></span>
+                  · <span x-text="formatBytes(c.size_bytes)"></span>
+                </div>
+              </div>
+              <div class="flex gap-1 shrink-0">
+                <button @click="resumeClaudeSession(c.id)" class="px-2.5 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">resume →</button>
+                <button @click="deleteClaudeSession(c.id, c.title)" class="px-2.5 py-1 text-xs font-medium rounded border border-red-200 bg-white text-red-700 hover:bg-red-50">borrar</button>
+              </div>
+            </div>
+          </template>
+          <div x-show="!claudeSessions.length" class="text-sm text-neutral-500">No hay sesiones de Claude Code.</div>
+        </div>
+      </div>
+
+      <!-- tmux sessions -->
+      <div hx-get="/api/sessions" hx-trigger="every 30s" hx-swap="none"
+           @htmx:after-request="if($event.detail.successful){ sessions = JSON.parse($event.detail.xhr.responseText) }">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-sm font-semibold text-neutral-700">Sesiones tmux</h2>
+          <button @click="loadSessions()" class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100">↻ Refresh</button>
+        </div>
+        <div class="space-y-2">
+          <template x-for="s in sessions" :key="s.name">
+            <div class="bg-white border border-neutral-200 rounded-lg p-3 flex items-center justify-between">
+              <div>
+                <div class="text-sm font-medium mono" x-text="s.name"></div>
+                <div class="text-xs text-neutral-500" x-text="(s.attached ? 'attached · ' : 'detached · ') + formatDate(s.created)"></div>
+              </div>
+              <button @click="attachSession(s.name)" class="px-2.5 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">attach →</button>
+            </div>
+          </template>
+          <div x-show="!sessions.length" class="text-sm text-neutral-500">No hay sesiones tmux activas.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- AGENTS -->
+    <section x-show="tab === 'agents'" x-cloak>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-neutral-700">Agentes Claude Code</h2>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-neutral-500" x-text="agents.length + ' agentes'"></span>
+          <button @click="openAgentsSession()" class="text-xs px-2 py-1 rounded border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50">+ sesión 'agents'</button>
+          <button @click="loadAgents()" class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100">↻ Refresh</button>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <ul class="md:col-span-1 space-y-1 max-h-[70vh] overflow-auto pr-1">
+          <template x-for="a in agents" :key="a.file">
+            <li>
+              <button @click="openAgent(a)"
+                :class="selectedAgent?.file === a.file ? 'bg-neutral-100 border-neutral-300' : 'bg-white border-neutral-200'"
+                class="w-full text-left p-2 rounded border hover:bg-neutral-100 transition">
+                <div class="flex items-center gap-2">
+                  <span :style="`background-color: ${agentDot(a.color)}`" class="w-2 h-2 rounded-full shrink-0"></span>
+                  <span class="text-sm font-medium truncate" x-text="a.name"></span>
+                </div>
+                <div class="text-xs text-neutral-500 mt-1 flex items-center gap-2 flex-wrap">
+                  <span class="mono text-[10px] px-1 py-0.5 rounded bg-neutral-100 border border-neutral-200" x-text="a.scope"></span>
+                  <span class="mono" x-show="a.model" x-text="a.model"></span>
+                </div>
+              </button>
+            </li>
+          </template>
+          <li x-show="!agents.length" class="text-sm text-neutral-500 p-2">Sin agentes en <span class="mono">~/.claude/agents/</span></li>
+        </ul>
+        <article class="md:col-span-2 bg-white border border-neutral-200 rounded-lg p-5 min-h-[200px]">
+          <template x-if="!selectedAgentDetail">
+            <p class="text-sm text-neutral-500">Selecciona un agente para ver su perfil.</p>
+          </template>
+          <template x-if="selectedAgentDetail">
+            <div>
+              <div class="flex items-center gap-2 mb-1">
+                <span :style="`background-color: ${agentDot(selectedAgent?.color)}`" class="w-2.5 h-2.5 rounded-full"></span>
+                <h3 class="text-base font-semibold" x-text="selectedAgentDetail.frontmatter.name || selectedAgent?.name"></h3>
+              </div>
+              <div class="text-xs text-neutral-500 mono mb-3 truncate" x-text="selectedAgentDetail.file"></div>
+              <div class="grid grid-cols-2 gap-2 text-xs mb-4">
+                <div><span class="text-neutral-500">scope:</span> <span class="mono" x-text="selectedAgent?.scope"></span></div>
+                <div><span class="text-neutral-500">model:</span> <span class="mono" x-text="selectedAgentDetail.frontmatter.model || '—'"></span></div>
+                <div><span class="text-neutral-500">color:</span> <span class="mono" x-text="selectedAgentDetail.frontmatter.color || '—'"></span></div>
+                <div><span class="text-neutral-500">memory:</span> <span class="mono" x-text="selectedAgentDetail.frontmatter.memory || '—'"></span></div>
+              </div>
+              <h4 class="text-xs font-semibold text-neutral-600 uppercase tracking-wide mb-1">Description</h4>
+              <p class="text-sm text-neutral-700 mb-4 whitespace-pre-line" x-text="selectedAgentDetail.frontmatter.description || '(sin descripción)'"></p>
+              <h4 class="text-xs font-semibold text-neutral-600 uppercase tracking-wide mb-1">System Prompt</h4>
+              <pre class="text-xs bg-neutral-50 border border-neutral-200 rounded p-3 max-h-[50vh] overflow-auto whitespace-pre-wrap" x-text="selectedAgentDetail.body"></pre>
+            </div>
+          </template>
+        </article>
+      </div>
+    </section>
+
+    <!-- TERMINAL -->
+    <section x-show="tab === 'terminal'" x-cloak>
+      <div class="flex items-center justify-between mb-4 gap-3">
+        <h2 class="text-sm font-semibold text-neutral-700">Terminal</h2>
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-xs text-neutral-500 mono truncate" x-text="ttydURL"></span>
+          <button @click="attachSession('shared')" class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100 shrink-0">← shared</button>
+        </div>
+      </div>
+      <iframe :src="ttydURL" class="tty"></iframe>
+    </section>
+
+  </main>
+
+  <!-- Output drawer (SSE) -->
+  <aside x-show="drawer.open" x-cloak
+         class="fixed right-0 top-0 h-full w-full md:w-1/2 bg-white border-l border-neutral-200 shadow-xl flex flex-col">
+    <div class="flex items-center justify-between p-4 border-b border-neutral-200">
+      <div>
+        <div class="text-sm font-semibold" x-text="drawer.title"></div>
+        <div class="text-xs text-neutral-500 mono" x-text="drawer.subtitle"></div>
+      </div>
+      <button @click="closeDrawer()" class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100">cerrar</button>
+    </div>
+    <pre id="log-stream" class="flex-1 overflow-auto bg-neutral-950 text-neutral-100 p-4"></pre>
+  </aside>
+
+</div>
+
+<script>
+function hub() {
+  return {
+    tabs: ['projects', 'reports', 'sessions', 'agents', 'terminal'],
+    tab: 'projects',
+    status: '',
+    projects: [],
+    reports: [],
+    sessions: [],
+    agents: [],
+    selectedAgent: null,
+    selectedAgentDetail: null,
+    claudeSessions: [],
+    bulkDays: 7,
+    bulkResult: '',
+    newTitle: '',
+    selectedReport: null,
+    reportHTML: '<p class="text-sm text-neutral-500">Selecciona un reporte para verlo.</p>',
+    drawer: { open: false, title: '', subtitle: '', es: null },
+    ttydURL: `http://${location.hostname}:8082/?arg=new-session&arg=-A&arg=-s&arg=shared`,
+
+    init() {
+      this.loadProjects();
+      this.loadSessions();
+      this.loadClaudeSessions();
+      this.loadAgents();
+      this.loadReports();
+      setInterval(() => { if (this.tab === 'projects') this.loadProjects(); }, 60000);
+      setInterval(() => { if (this.tab === 'sessions') this.loadClaudeSessions(); }, 60000);
+    },
+
+    get claudeTelCodeCount() {
+      return this.claudeSessions.filter(c => c.tag === 'tel-code').length;
+    },
+
+    setTab(t) { this.tab = t; },
+
+    async loadProjects() {
+      this.status = 'cargando proyectos…';
+      const r = await fetch('/api/projects');
+      this.projects = await r.json();
+      this.status = `${this.projects.length} proyectos`;
+    },
+    async loadSessions() {
+      const r = await fetch('/api/sessions');
+      this.sessions = await r.json();
+    },
+    async loadClaudeSessions() {
+      const r = await fetch('/api/claude-sessions');
+      if (r.ok) this.claudeSessions = await r.json();
+    },
+    async createClaudeSession() {
+      const title = this.newTitle.trim();
+      if (!title) return;
+      const r = await fetch('/api/claude-sessions/new', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title }),
+      });
+      if (!r.ok) {
+        const txt = await r.text();
+        alert(`crear falló: ${r.status} ${txt}`);
+        return;
+      }
+      const data = await r.json();
+      this.newTitle = '';
+      this.attachSession(data.name);
+      // refresh list shortly so the new session shows up with its title
+      setTimeout(() => this.loadClaudeSessions(), 5000);
+    },
+    async resumeClaudeSession(id) {
+      const r = await fetch(`/api/claude-sessions/${id}/resume`, { method: 'POST' });
+      if (!r.ok) {
+        alert(`resume failed: ${r.status}`);
+        return;
+      }
+      const data = await r.json();
+      this.attachSession(data.name);
+    },
+    async deleteClaudeSession(id, title) {
+      if (!window.confirm(`Borrar sesión "${title}" (${id.slice(0,8)})?`)) return;
+      const r = await fetch(`/api/claude-sessions/${id}/delete`, { method: 'POST' });
+      if (!r.ok) {
+        alert(`delete failed: ${r.status}`);
+        return;
+      }
+      this.loadClaudeSessions();
+    },
+    async bulkDeleteTelCode() {
+      const days = this.bulkDays;
+      if (!window.confirm(`Borrar TODAS las sesiones tel-code más viejas que ${days} días?`)) return;
+      this.bulkResult = 'borrando…';
+      const r = await fetch('/api/claude-sessions/bulk-delete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tag: 'tel-code', older_than_days: days }),
+      });
+      if (!r.ok) {
+        this.bulkResult = `error ${r.status}`;
+        return;
+      }
+      const data = await r.json();
+      this.bulkResult = `borradas: ${data.deleted_count}` + (data.failed.length ? ` · fallidas: ${data.failed.length}` : '');
+      this.loadClaudeSessions();
+      setTimeout(() => { this.bulkResult = ''; }, 5000);
+    },
+    relativeTime(epoch) {
+      if (!epoch) return '';
+      const diff = Date.now() / 1000 - epoch;
+      if (diff < 60) return 'ahora';
+      if (diff < 3600) return `hace ${Math.floor(diff / 60)} min`;
+      if (diff < 86400) return `hace ${Math.floor(diff / 3600)} h`;
+      const days = Math.floor(diff / 86400);
+      if (days < 30) return `hace ${days} días`;
+      const months = Math.floor(days / 30);
+      if (months < 12) return `hace ${months} meses`;
+      return `hace ${Math.floor(months / 12)} años`;
+    },
+    formatBytes(n) {
+      if (!n) return '0 B';
+      if (n < 1024) return `${n} B`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+      return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    },
+    async loadAgents() {
+      const r = await fetch('/api/agents');
+      if (r.ok) this.agents = await r.json();
+    },
+    async openAgent(a) {
+      this.selectedAgent = a;
+      this.selectedAgentDetail = null;
+      const r = await fetch(`/api/agents/file?path=${encodeURIComponent(a.file)}`);
+      if (r.ok) this.selectedAgentDetail = await r.json();
+    },
+    agentDot(color) {
+      const map = {
+        red: '#ef4444', green: '#22c55e', blue: '#3b82f6',
+        yellow: '#eab308', orange: '#f97316', purple: '#a855f7',
+        pink: '#ec4899', cyan: '#06b6d4', gray: '#9ca3af',
+      };
+      return map[color] || '#9ca3af';
+    },
+    async openAgentsSession() {
+      const r = await fetch('/api/claude-sessions/new', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'agents' }),
+      });
+      if (!r.ok) {
+        // Si ya existe sesión 'cl-agents' attachamos directo
+        const existing = this.sessions.find(s => s.name.startsWith('cl-agents'));
+        if (existing) { this.attachSession(existing.name); return; }
+        alert(`crear falló: ${r.status}`);
+        return;
+      }
+      const data = await r.json();
+      this.attachSession(data.name);
+    },
+    async loadReports() {
+      const r = await fetch('/api/reports');
+      this.reports = await r.json();
+    },
+    async openReport(r) {
+      this.selectedReport = r;
+      this.reportHTML = '<p class="text-sm text-neutral-500">Cargando…</p>';
+      const res = await fetch(`/api/reports/${encodeURIComponent(r.filename)}`);
+      this.reportHTML = await res.text();
+    },
+
+    dotClass(p) {
+      if (!p.git.is_repo) return 'dot-norepo';
+      if (p.git.behind) return 'dot-behind';
+      if (p.git.ahead)  return 'dot-ahead';
+      if (p.git.dirty)  return 'dot-dirty';
+      return 'dot-clean';
+    },
+    branchLabel(p) {
+      if (!p.git.is_repo) return '(no repo)';
+      let s = p.git.branch || '?';
+      if (p.git.dirty)  s += ` ●${p.git.dirty}`;
+      if (p.git.ahead)  s += ` ↑${p.git.ahead}`;
+      if (p.git.behind) s += ` ↓${p.git.behind}`;
+      if (p.git.clean)  s += ` ✓`;
+      return s;
+    },
+    formatDate(epoch) {
+      if (!epoch) return '';
+      const d = new Date(epoch * 1000);
+      return d.toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+    },
+
+    async runCmd(project, cmd_id) {
+      const r = await fetch(`/api/projects/${project}/run/${cmd_id}`, { method: 'POST' });
+      if (!r.ok) {
+        alert(`Error: ${r.status}`);
+        return;
+      }
+      const job = await r.json();
+      this.openDrawer(`${project} · ${cmd_id}`, `job ${job.job_id}`);
+      this.streamJob(project, job.job_id);
+    },
+    streamJob(project, jobId) {
+      if (this.drawer.es) this.drawer.es.close();
+      const log = document.getElementById('log-stream');
+      log.textContent = '';
+      const es = new EventSource(`/api/projects/${project}/output/${jobId}`);
+      this.drawer.es = es;
+      es.onmessage = (ev) => {
+        log.textContent += ev.data + '\n';
+        log.scrollTop = log.scrollHeight;
+      };
+      es.addEventListener('end', (ev) => {
+        log.textContent += `\n--- ${ev.data} ---\n`;
+        es.close();
+        this.drawer.es = null;
+      });
+      es.onerror = () => { es.close(); this.drawer.es = null; };
+    },
+    openDrawer(title, subtitle) {
+      this.drawer.open = true;
+      this.drawer.title = title;
+      this.drawer.subtitle = subtitle;
+    },
+    closeDrawer() {
+      if (this.drawer.es) { this.drawer.es.close(); this.drawer.es = null; }
+      this.drawer.open = false;
+    },
+
+    async openTmux(projectName) {
+      const sessionName = projectName.replace(/[^a-zA-Z0-9-]/g, '-').slice(0, 40);
+      try {
+        const r = await fetch('/api/sessions/new', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: sessionName, project: projectName }),
+        });
+        if (!r.ok && r.status !== 400) {
+          alert(`tmux failed: ${r.status}`);
+          return;
+        }
+      } catch (e) { /* ignore — session may already exist */ }
+      this.attachSession(sessionName);
+    },
+    attachSession(name) {
+      this.tab = 'terminal';
+      const n = encodeURIComponent(name);
+      // cache-bust con timestamp para forzar recarga del iframe aunque la URL anterior fuera idéntica
+      this.ttydURL = `http://${location.hostname}:8082/?arg=attach&arg=-t&arg=${n}&_t=${Date.now()}`;
+    },
+  };
+}
+</script>
+
+<style>[x-cloak] { display: none !important; }</style>
+{% endblock %}

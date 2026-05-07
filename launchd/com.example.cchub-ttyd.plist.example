@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Example launchd agent for ttyd (web terminal). Companion to the hub.
+  Notes:
+    - The `-a` flag is REQUIRED so the hub can pass tmux args via URL query.
+    - The base command is just `tmux`; the hub adds `?arg=new-session&arg=-A&arg=-s&arg=shared`
+      to the URL, so visit /?arg=new-session&arg=-A&arg=-s&arg=shared by default.
+    - LANG / LC_ALL are set so accented characters render correctly in the browser TTY.
+
+  Copy to ~/Library/LaunchAgents/com.<you>.cchub-ttyd.plist, then:
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.<you>.cchub-ttyd.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.example.cchub-ttyd</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/ttyd</string>
+        <string>-p</string>
+        <string>8082</string>
+        <string>-W</string>
+        <string>-a</string>
+        <string>/opt/homebrew/bin/tmux</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/YOU</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>LANG</key>
+        <string>en_US.UTF-8</string>
+        <key>LC_ALL</key>
+        <string>en_US.UTF-8</string>
+        <key>LC_CTYPE</key>
+        <string>en_US.UTF-8</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>/PATH/TO/claude-code-hub/logs/ttyd-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/PATH/TO/claude-code-hub/logs/ttyd-stderr.log</string>
+</dict>
+</plist>

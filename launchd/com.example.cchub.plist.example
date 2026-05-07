@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Example launchd agent for the Claude Code Hub web server.
+  Copy to ~/Library/LaunchAgents/com.<you>.cchub.plist, edit paths, then:
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.<you>.cchub.plist
+    launchctl kickstart -k gui/$(id -u)/com.<you>.cchub
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.example.cchub</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/PATH/TO/claude-code-hub/venv/bin/uvicorn</string>
+        <string>app.main:app</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+        <string>--port</string>
+        <string>8081</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/PATH/TO/claude-code-hub</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>/PATH/TO/claude-code-hub/logs/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/PATH/TO/claude-code-hub/logs/stderr.log</string>
+</dict>
+</plist>
