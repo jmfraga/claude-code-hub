@@ -54,10 +54,15 @@
                   · <span x-text="p.last_commit?.subject"></span>
                 </div>
               </div>
-              <div class="flex flex-wrap gap-1 shrink-0" x-show="p.git.is_repo">
-                <button @click="runCmd(p.name, 'git_status')" class="px-2 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">git status</button>
-                <button @click="runCmd(p.name, 'git_pull')" class="px-2 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">git pull</button>
-                <button @click="runCmd(p.name, 'npm_test')" class="px-2 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">tests</button>
+              <div class="flex flex-wrap gap-1 shrink-0">
+                <template x-if="p.git.is_repo">
+                  <span class="flex flex-wrap gap-1">
+                    <button @click="runCmd(p.name, 'git_status')" class="px-2 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">git status</button>
+                    <button @click="runCmd(p.name, 'git_pull')" class="px-2 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">git pull</button>
+                    <button @click="runCmd(p.name, 'npm_test')" class="px-2 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">tests</button>
+                  </span>
+                </template>
+                <button @click="openFiles(p)" class="px-2 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">files</button>
                 <button @click="openTmux(p.name)" class="px-2 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">tmux</button>
               </div>
             </div>
@@ -240,6 +245,60 @@
 
   </main>
 
+  <!-- Files drawer -->
+  <aside x-show="filesDrawer.open" x-cloak
+         class="fixed right-0 top-0 h-full w-full md:w-3/4 bg-white border-l border-neutral-200 shadow-xl flex flex-col">
+    <div class="flex items-center justify-between p-4 border-b border-neutral-200 gap-3">
+      <div class="min-w-0 flex-1">
+        <div class="text-sm font-semibold flex items-center gap-2">
+          <span class="mono" x-text="filesDrawer.project?.name || '—'"></span>
+        </div>
+        <div class="text-xs text-neutral-500 mono truncate flex items-center gap-1 mt-1">
+          <button @click="navFiles('')" class="hover:underline">root</button>
+          <template x-for="(seg, i) in filesBreadcrumb" :key="i">
+            <span class="flex items-center gap-1">
+              <span class="text-neutral-400">/</span>
+              <button @click="navFiles(filesBreadcrumb.slice(0, i+1).join('/'))" class="hover:underline" x-text="seg"></button>
+            </span>
+          </template>
+        </div>
+      </div>
+      <button @click="closeFiles()" class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100 shrink-0">cerrar</button>
+    </div>
+    <div class="flex-1 grid grid-cols-1 md:grid-cols-3 overflow-hidden">
+      <div class="md:col-span-1 border-r border-neutral-200 overflow-auto p-2">
+        <ul class="space-y-0.5">
+          <template x-for="e in filesDrawer.entries" :key="e.name">
+            <li>
+              <button
+                @click="e.type === 'dir' ? navFiles(joinPath(filesDrawer.subpath, e.name)) : openFile(e.name)"
+                :class="filesDrawer.openedFile === e.name ? 'bg-neutral-100' : ''"
+                class="w-full text-left px-2 py-1 rounded hover:bg-neutral-100 transition flex items-center gap-2 text-sm">
+                <span class="text-neutral-400 shrink-0" x-text="e.type === 'dir' ? '📁' : '📄'"></span>
+                <span class="truncate" x-text="e.name"></span>
+                <span x-show="e.type === 'file'" class="text-[10px] text-neutral-400 mono ml-auto shrink-0" x-text="formatBytes(e.size)"></span>
+              </button>
+            </li>
+          </template>
+          <li x-show="!filesDrawer.entries.length" class="text-xs text-neutral-500 p-2">(directorio vacío)</li>
+        </ul>
+      </div>
+      <div class="md:col-span-2 overflow-auto bg-neutral-50">
+        <template x-if="!filesDrawer.fileContent && !filesDrawer.fileBinary">
+          <div class="p-6 text-sm text-neutral-500">Selecciona un archivo para verlo.</div>
+        </template>
+        <template x-if="filesDrawer.fileBinary">
+          <div class="p-6 text-sm text-neutral-500">
+            Archivo binario (<span class="mono" x-text="formatBytes(filesDrawer.fileSize)"></span>) — no se previsualiza.
+          </div>
+        </template>
+        <template x-if="filesDrawer.fileContent && !filesDrawer.fileBinary">
+          <pre class="text-xs p-4 whitespace-pre font-mono leading-relaxed" x-text="filesDrawer.fileContent"></pre>
+        </template>
+      </div>
+    </div>
+  </aside>
+
   <!-- Output drawer (SSE) -->
   <aside x-show="drawer.open" x-cloak
          class="fixed right-0 top-0 h-full w-full md:w-1/2 bg-white border-l border-neutral-200 shadow-xl flex flex-col">
@@ -274,6 +333,7 @@ function hub() {
     selectedReport: null,
     reportHTML: '<p class="text-sm text-neutral-500">Selecciona un reporte para verlo.</p>',
     drawer: { open: false, title: '', subtitle: '', es: null },
+    filesDrawer: { open: false, project: null, subpath: '', entries: [], fileContent: '', fileBinary: false, fileSize: 0, openedFile: '' },
     ttydURL: `http://${location.hostname}:8082/?arg=new-session&arg=-A&arg=-s&arg=shared`,
 
     init() {
@@ -483,6 +543,56 @@ function hub() {
       this.drawer.open = false;
     },
 
+    get filesBreadcrumb() {
+      return this.filesDrawer.subpath ? this.filesDrawer.subpath.split('/').filter(Boolean) : [];
+    },
+    joinPath(a, b) { return a ? `${a}/${b}` : b; },
+    async openFiles(p) {
+      this.filesDrawer.open = true;
+      this.filesDrawer.project = p;
+      this.filesDrawer.subpath = '';
+      this.filesDrawer.fileContent = '';
+      this.filesDrawer.fileBinary = false;
+      this.filesDrawer.openedFile = '';
+      await this.loadFiles();
+    },
+    async navFiles(subpath) {
+      this.filesDrawer.subpath = subpath;
+      this.filesDrawer.openedFile = '';
+      this.filesDrawer.fileContent = '';
+      this.filesDrawer.fileBinary = false;
+      await this.loadFiles();
+    },
+    async loadFiles() {
+      const p = this.filesDrawer.project;
+      if (!p) return;
+      const url = `/api/projects/${encodeURIComponent(p.name)}/files?subpath=${encodeURIComponent(this.filesDrawer.subpath)}`;
+      const r = await fetch(url);
+      if (!r.ok) { this.filesDrawer.entries = []; return; }
+      const data = await r.json();
+      this.filesDrawer.entries = data.entries || [];
+    },
+    async openFile(name) {
+      const p = this.filesDrawer.project;
+      if (!p) return;
+      const sub = this.joinPath(this.filesDrawer.subpath, name);
+      this.filesDrawer.openedFile = name;
+      this.filesDrawer.fileContent = '';
+      this.filesDrawer.fileBinary = false;
+      this.filesDrawer.fileSize = 0;
+      const r = await fetch(`/api/projects/${encodeURIComponent(p.name)}/file?subpath=${encodeURIComponent(sub)}`);
+      if (!r.ok) { this.filesDrawer.fileContent = `[error ${r.status}]`; return; }
+      const data = await r.json();
+      this.filesDrawer.fileSize = data.size;
+      if (data.binary) {
+        this.filesDrawer.fileBinary = true;
+      } else {
+        this.filesDrawer.fileContent = data.content;
+      }
+    },
+    closeFiles() {
+      this.filesDrawer.open = false;
+    },
     async openTmux(projectName) {
       const sessionName = projectName.replace(/[^a-zA-Z0-9-]/g, '-').slice(0, 40);
       try {
