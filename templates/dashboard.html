@@ -237,6 +237,9 @@
         <h2 class="text-sm font-semibold text-neutral-700">Terminal</h2>
         <div class="flex items-center gap-2 min-w-0">
           <span class="text-xs text-neutral-500 mono truncate" x-text="ttydURL"></span>
+          <a :href="ttydURL" target="_blank" rel="noopener"
+             class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100 shrink-0"
+             title="Abrir terminal en pestaña nueva">↗ nueva</a>
           <button @click="attachSession('shared')" class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100 shrink-0">← shared</button>
         </div>
       </div>
@@ -317,7 +320,7 @@
 <script>
 function hub() {
   return {
-    tabs: ['projects', 'reports', 'sessions', 'agents', 'terminal'],
+    tabs: ['projects', 'agents', 'reports', 'sessions', 'terminal'],
     tab: 'projects',
     status: '',
     projects: [],
