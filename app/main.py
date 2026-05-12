@@ -24,7 +24,6 @@ def _claude_bin() -> str:
     found = shutil.which("claude")
     if found:
         return found
-    # Common install location for Claude Code on macOS/Linux
     candidate = Path.home() / ".local" / "bin" / "claude"
     return str(candidate)
 
@@ -60,6 +59,18 @@ async def index(request: Request):
     return templates.TemplateResponse(request, "dashboard.html")
 
 
+@app.get("/api/tmux/buffer")
+async def api_tmux_buffer():
+    return {"content": tmux_utils.show_buffer()}
+
+
+@app.get("/api/config")
+async def api_config():
+    """Safe-to-expose config bits for the frontend."""
+    s = load_settings()
+    return {"ssh_target": s.get("ssh_target") or ""}
+
+
 @app.get("/api/projects")
 async def api_projects():
     s = load_settings()
@@ -67,13 +78,37 @@ async def api_projects():
 
 
 @app.get("/api/projects/{name}/files")
-async def api_project_files(name: str):
+async def api_project_files(name: str, subpath: str = ""):
     s = load_settings()
     plist = projects.scan(Path(s["projects_root"]).expanduser(), s.get("extra_projects", []) or [])
     proj = projects.find(plist, name)
     if not proj:
         raise HTTPException(404, "project not found")
-    return projects.file_tree(Path(proj["path"]))
+    target = projects.safe_subpath(Path(proj["path"]), subpath)
+    if target is None or not target.is_dir():
+        raise HTTPException(404, "subpath not found")
+    return {
+        "subpath": subpath.lstrip("/"),
+        "entries": projects.list_dir(target),
+    }
+
+
+@app.get("/api/projects/{name}/file")
+async def api_project_file(name: str, subpath: str):
+    if not subpath:
+        raise HTTPException(400, "subpath required")
+    s = load_settings()
+    plist = projects.scan(Path(s["projects_root"]).expanduser(), s.get("extra_projects", []) or [])
+    proj = projects.find(plist, name)
+    if not proj:
+        raise HTTPException(404, "project not found")
+    target = projects.safe_subpath(Path(proj["path"]), subpath)
+    if target is None:
+        raise HTTPException(400, "invalid subpath")
+    detail = projects.read_file(target)
+    if detail is None:
+        raise HTTPException(404, "file not found")
+    return detail
 
 
 @app.get("/api/reports")
@@ -170,7 +205,7 @@ async def api_claude_session_new(payload: dict):
         if i > 9:
             raise HTTPException(409, "too many sessions with similar name")
     claude_bin = _claude_bin()
-    # Schedule /rename <name> via send-keys after claude is up; then run claude.
+    # Schedule /title <name> via send-keys after claude is up; then exec claude.
     # The pane stays alive on exit so the user reads any error.
     wrapped = (
         f"( sleep 3 && {tmux_utils.TMUX} send-keys -t {name} '/rename {safe_title}' Enter ) & "

@@ -143,7 +143,8 @@
                 </div>
               </div>
               <div class="flex gap-1 shrink-0">
-                <button @click="resumeClaudeSession(c.id)" class="px-2.5 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">resume →</button>
+                <button @click="resumeClaudeSession(c.id)" class="px-2.5 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100" title="Abrir en el navegador">resume →</button>
+                <button @click="copyResumeLocal(c.id)" x-show="sshTarget" class="px-2.5 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100" title="Copiar comando ssh para terminal local">↗ local</button>
                 <button @click="deleteClaudeSession(c.id, c.title)" class="px-2.5 py-1 text-xs font-medium rounded border border-red-200 bg-white text-red-700 hover:bg-red-50">borrar</button>
               </div>
             </div>
@@ -166,7 +167,10 @@
                 <div class="text-sm font-medium mono" x-text="s.name"></div>
                 <div class="text-xs text-neutral-500" x-text="(s.attached ? 'attached · ' : 'detached · ') + formatDate(s.created)"></div>
               </div>
-              <button @click="attachSession(s.name)" class="px-2.5 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100">attach →</button>
+              <div class="flex gap-1 shrink-0">
+              <button @click="attachSession(s.name)" class="px-2.5 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100" title="Abrir en el navegador">attach →</button>
+              <button @click="copyAttachLocal(s.name)" x-show="sshTarget" class="px-2.5 py-1 text-xs font-medium rounded border border-neutral-200 bg-white hover:bg-neutral-100" title="Copiar comando ssh para terminal local">↗ local</button>
+            </div>
             </div>
           </template>
           <div x-show="!sessions.length" class="text-sm text-neutral-500">No hay sesiones tmux activas.</div>
@@ -237,6 +241,9 @@
         <h2 class="text-sm font-semibold text-neutral-700">Terminal</h2>
         <div class="flex items-center gap-2 min-w-0">
           <span class="text-xs text-neutral-500 mono truncate" x-text="ttydURL"></span>
+          <button @click="copyTmuxBuffer()"
+                  class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100 shrink-0"
+                  title="Copia al portapapeles del navegador lo último que seleccionaste con el mouse en tmux">📋 copy buffer</button>
           <a :href="ttydURL" target="_blank" rel="noopener"
              class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100 shrink-0"
              title="Abrir terminal en pestaña nueva">↗ nueva</a>
@@ -247,6 +254,11 @@
     </section>
 
   </main>
+
+  <!-- Copy toast -->
+  <div x-show="copyToast" x-cloak
+       class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-neutral-900 text-white text-xs px-3 py-2 rounded-md shadow-lg max-w-[90vw] truncate mono"
+       x-text="copyToast"></div>
 
   <!-- Files drawer -->
   <aside x-show="filesDrawer.open" x-cloak
@@ -333,6 +345,8 @@ function hub() {
     bulkDays: 7,
     bulkResult: '',
     newTitle: '',
+    sshTarget: '',
+    copyToast: '',
     selectedReport: null,
     reportHTML: '<p class="text-sm text-neutral-500">Selecciona un reporte para verlo.</p>',
     drawer: { open: false, title: '', subtitle: '', es: null },
@@ -340,6 +354,7 @@ function hub() {
     ttydURL: `http://${location.hostname}:8082/?arg=new-session&arg=-A&arg=-s&arg=shared`,
 
     init() {
+      this.loadConfig();
       this.loadProjects();
       this.loadSessions();
       this.loadClaudeSessions();
@@ -347,6 +362,42 @@ function hub() {
       this.loadReports();
       setInterval(() => { if (this.tab === 'projects') this.loadProjects(); }, 60000);
       setInterval(() => { if (this.tab === 'sessions') this.loadClaudeSessions(); }, 60000);
+    },
+    async loadConfig() {
+      try {
+        const r = await fetch('/api/config');
+        if (r.ok) { const d = await r.json(); this.sshTarget = d.ssh_target || ''; }
+      } catch (e) { /* ignore */ }
+    },
+    async copyToClipboard(text, hint) {
+      try {
+        await navigator.clipboard.writeText(text);
+        this.copyToast = (hint || 'copiado') + ': ' + text;
+      } catch (e) {
+        // Fallback: prompt so user can copy manually
+        window.prompt('Copia este comando:', text);
+        this.copyToast = '';
+        return;
+      }
+      setTimeout(() => { this.copyToast = ''; }, 4000);
+    },
+    copyResumeLocal(id) {
+      if (!this.sshTarget) { alert('Configura ssh_target en settings.yaml'); return; }
+      this.copyToClipboard(`ssh -t ${this.sshTarget} 'claude --resume ${id}'`, 'comando ssh');
+    },
+    async copyTmuxBuffer() {
+      try {
+        const r = await fetch('/api/tmux/buffer');
+        if (!r.ok) { alert('error leyendo buffer'); return; }
+        const data = await r.json();
+        const text = data.content || '';
+        if (!text) { this.copyToast = 'buffer vacío — selecciona algo primero'; setTimeout(()=>this.copyToast='', 3000); return; }
+        await this.copyToClipboard(text, `buffer (${text.length} chars)`);
+      } catch (e) { alert('error: ' + e); }
+    },
+    copyAttachLocal(name) {
+      if (!this.sshTarget) { alert('Configura ssh_target en settings.yaml'); return; }
+      this.copyToClipboard(`ssh -t ${this.sshTarget} 'tmux attach -t ${name}'`, 'comando ssh');
     },
 
     get claudeTelCodeCount() {

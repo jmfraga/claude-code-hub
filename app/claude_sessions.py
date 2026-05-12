@@ -9,7 +9,6 @@ from pathlib import Path
 def _default_sessions_dir() -> Path:
     """Claude Code stores session JSONLs under ~/.claude/projects/<slug>, where
     <slug> is the cwd-at-launch with `/` replaced by `-` (and a leading dash).
-    For an interactive `claude` launched from $HOME, this is e.g. `-Users-alice`.
     Override with CCHUB_SESSIONS_DIR if your workflow differs.
     """
     override = os.environ.get("CCHUB_SESSIONS_DIR")

@@ -49,3 +49,11 @@ def new_session(name: str, cwd: Path, command: list[str] | None = None) -> tuple
 def session_exists(name: str) -> bool:
     p = subprocess.run([TMUX, "has-session", "-t", name], capture_output=True, timeout=3)
     return p.returncode == 0
+
+
+def show_buffer() -> str:
+    """Return tmux's most-recent paste buffer (what was last selected/copied)."""
+    p = subprocess.run([TMUX, "show-buffer"], capture_output=True, text=True, timeout=3)
+    if p.returncode != 0:
+        return ""
+    return p.stdout

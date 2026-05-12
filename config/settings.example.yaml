@@ -8,6 +8,11 @@ extra_projects: []          # Additional project paths outside projects_root
 reports_path: ~/reportes     # Folder where you keep markdown reports
 extra_reports_paths: []      # Additional report folders
 
+# Optional. When set, the Sessions tab exposes an "↗ local" button next to
+# each session that copies an `ssh -t <ssh_target> '<cmd>'` snippet to the
+# clipboard so you can resume the session in your laptop's native terminal.
+ssh_target: ""               # e.g. "you@host.tailscale-name" or "you@10.0.0.5"
+
 # Whitelist of commands the hub can run on a project.
 # IDs must be unique. cmd is an argv list (no shell).
 allowed_commands:
