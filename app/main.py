@@ -8,8 +8,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-import markdown as md_lib
-
 from . import agents, claude_sessions, jobs, projects, tmux_utils
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -40,18 +38,6 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 def load_settings() -> dict:
     with open(CONFIG_PATH) as f:
         return yaml.safe_load(f)
-
-
-def reports_dirs(settings: dict) -> list[Path]:
-    out: list[Path] = []
-    p = Path(settings.get("reports_path", "")).expanduser()
-    if p.is_dir():
-        out.append(p)
-    for extra in settings.get("extra_reports_paths", []) or []:
-        ep = Path(extra).expanduser()
-        if ep.is_dir():
-            out.append(ep)
-    return out
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -109,38 +95,6 @@ async def api_project_file(name: str, subpath: str):
     if detail is None:
         raise HTTPException(404, "file not found")
     return detail
-
-
-@app.get("/api/reports")
-async def api_reports():
-    s = load_settings()
-    out = []
-    for d in reports_dirs(s):
-        for f in d.glob("*.md"):
-            stat = f.stat()
-            out.append({
-                "filename": f.name,
-                "path": str(f),
-                "size": stat.st_size,
-                "mtime": stat.st_mtime,
-                "dir": str(d),
-            })
-    out.sort(key=lambda x: x["mtime"], reverse=True)
-    return out
-
-
-@app.get("/api/reports/{filename}", response_class=HTMLResponse)
-async def api_report_render(filename: str):
-    if "/" in filename or filename.startswith("."):
-        raise HTTPException(400, "invalid filename")
-    s = load_settings()
-    for d in reports_dirs(s):
-        candidate = d / filename
-        if candidate.is_file() and candidate.suffix == ".md":
-            text = candidate.read_text(encoding="utf-8", errors="replace")
-            html = md_lib.markdown(text, extensions=["fenced_code", "tables", "toc"])
-            return HTMLResponse(html)
-    raise HTTPException(404, "report not found")
 
 
 @app.get("/api/sessions")

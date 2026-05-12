@@ -72,30 +72,6 @@
       </div>
     </section>
 
-    <!-- REPORTS -->
-    <section x-show="tab === 'reports'" x-cloak>
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-sm font-semibold text-neutral-700">Reportes Markdown</h2>
-        <button @click="loadReports()" class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100">↻ Refresh</button>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <ul class="md:col-span-1 space-y-1">
-          <template x-for="r in reports" :key="r.path">
-            <li>
-              <button @click="openReport(r)"
-                :class="selectedReport?.path === r.path ? 'bg-neutral-100' : 'bg-white'"
-                class="w-full text-left p-2 rounded border border-neutral-200 hover:bg-neutral-100 transition">
-                <div class="text-sm font-medium truncate" x-text="r.filename"></div>
-                <div class="text-xs text-neutral-500 mono" x-text="formatDate(r.mtime)"></div>
-              </button>
-            </li>
-          </template>
-          <li x-show="!reports.length" class="text-sm text-neutral-500 p-2">Sin reportes en <span class="mono">~/reportes</span></li>
-        </ul>
-        <article class="md:col-span-2 bg-white border border-neutral-200 rounded-lg p-6 prose-md min-h-[200px]" x-html="reportHTML"></article>
-      </div>
-    </section>
-
     <!-- SESSIONS -->
     <section x-show="tab === 'sessions'" x-cloak>
 
@@ -332,11 +308,10 @@
 <script>
 function hub() {
   return {
-    tabs: ['projects', 'agents', 'reports', 'sessions', 'terminal'],
+    tabs: ['projects', 'agents', 'sessions', 'terminal'],
     tab: 'projects',
     status: '',
     projects: [],
-    reports: [],
     sessions: [],
     agents: [],
     selectedAgent: null,
@@ -347,8 +322,6 @@ function hub() {
     newTitle: '',
     sshTarget: '',
     copyToast: '',
-    selectedReport: null,
-    reportHTML: '<p class="text-sm text-neutral-500">Selecciona un reporte para verlo.</p>',
     drawer: { open: false, title: '', subtitle: '', es: null },
     filesDrawer: { open: false, project: null, subpath: '', entries: [], fileContent: '', fileBinary: false, fileSize: 0, openedFile: '' },
     ttydURL: `http://${location.hostname}:8082/?arg=new-session&arg=-A&arg=-s&arg=shared`,
@@ -359,7 +332,6 @@ function hub() {
       this.loadSessions();
       this.loadClaudeSessions();
       this.loadAgents();
-      this.loadReports();
       setInterval(() => { if (this.tab === 'projects') this.loadProjects(); }, 60000);
       setInterval(() => { if (this.tab === 'sessions') this.loadClaudeSessions(); }, 60000);
     },
@@ -527,17 +499,6 @@ function hub() {
       const data = await r.json();
       this.attachSession(data.name);
     },
-    async loadReports() {
-      const r = await fetch('/api/reports');
-      this.reports = await r.json();
-    },
-    async openReport(r) {
-      this.selectedReport = r;
-      this.reportHTML = '<p class="text-sm text-neutral-500">Cargando…</p>';
-      const res = await fetch(`/api/reports/${encodeURIComponent(r.filename)}`);
-      this.reportHTML = await res.text();
-    },
-
     dotClass(p) {
       if (!p.git.is_repo) return 'dot-norepo';
       if (p.git.behind) return 'dot-behind';

@@ -5,9 +5,6 @@ projects_root: ~/Projects
 extra_projects: []          # Additional project paths outside projects_root
                              # e.g. [~/work/openclaw, ~/work/foo]
 
-reports_path: ~/reportes     # Folder where you keep markdown reports
-extra_reports_paths: []      # Additional report folders
-
 # Optional. When set, the Sessions tab exposes an "↗ local" button next to
 # each session that copies an `ssh -t <ssh_target> '<cmd>'` snippet to the
 # clipboard so you can resume the session in your laptop's native terminal.

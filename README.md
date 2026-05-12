@@ -7,8 +7,7 @@ Built for the case where you have a beefy "brain" machine (mine is a Mac Mini M4
 - Browse your **Projects**: git status, last commit, run a small whitelist of commands (`git status`, `git pull`, `npm test`, …) and stream output live via SSE.
 - Manage **Claude Code sessions**: list every session JSONL with metadata (title, last activity, turn count, size, tag), **resume** any session in a tmux pane, **delete** stale ones, **bulk-delete** by age (great for cleaning up bot-spawned sessions). Create a **new named session** from the UI — the hub starts `claude` and auto-runs `/rename <title>` so it shows up with a friendly name.
 - Browse the **Agents** you have registered (`~/.claude/agents/*.md` and per-project ones): name, description, model, color, full system prompt.
-- Read **Reports** (markdown files in a folder of your choice).
-- Drop into a **Terminal** (ttyd over a shared tmux session).
+- Drop into a **Terminal** (ttyd over a shared tmux session) — with a `📋 copy buffer` button to copy whatever you last selected with the mouse into the browser's clipboard.
 
 Stack: FastAPI + Jinja + HTMX + Alpine.js + Tailwind CDN + ttyd + tmux. No build step, no DB.
 
@@ -16,7 +15,7 @@ Stack: FastAPI + Jinja + HTMX + Alpine.js + Tailwind CDN + ttyd + tmux. No build
 
 ## Screenshot
 
-The UI is intentionally plain — five tabs (Projects / Reports / Sessions / Agents / Terminal), small components, no JS framework dance.
+The UI is intentionally plain — four tabs (Projects / Agents / Sessions / Terminal), small components, no JS framework dance.
 
 ## How sessions are tracked
 
@@ -58,7 +57,7 @@ cd claude-code-hub
 python3 -m venv venv
 ./venv/bin/pip install -r requirements.txt
 cp config/settings.example.yaml config/settings.yaml
-$EDITOR config/settings.yaml      # set projects_root and reports_path
+$EDITOR config/settings.yaml      # set projects_root (and optionally ssh_target)
 mkdir -p logs
 ```
 
@@ -116,7 +115,6 @@ Adapt the launchd plists to two `~/.config/systemd/user/*.service` units running
 | POST | `/api/projects/{name}/run/{cmd_id}` | Run a whitelisted command |
 | GET | `/api/projects/{name}/output/{job_id}` | SSE stream of job output |
 | GET | `/api/jobs` | Recent jobs |
-| GET | `/api/reports` / `/api/reports/{filename}` | List / render markdown |
 | GET | `/api/sessions` | List tmux sessions |
 | POST | `/api/sessions/new` | Create a tmux session inside a project |
 | GET | `/api/claude-sessions` | List Claude Code sessions with metadata |
