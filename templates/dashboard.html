@@ -615,7 +615,7 @@ function hub() {
     },
     async loadGraph() {
       try {
-        const r = await fetch('/api/dashboard/graph');
+        const r = await fetch(`/api/dashboard/graph?_t=${Date.now()}`, { cache: 'no-store' });
         if (!r.ok) return;
         this.graphData = await r.json();
         this.renderGraph();

@@ -35,6 +35,14 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
+@app.middleware("http")
+async def _no_cache_api(request: Request, call_next):
+    resp = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return resp
+
+
 def load_settings() -> dict:
     with open(CONFIG_PATH) as f:
         return yaml.safe_load(f)
