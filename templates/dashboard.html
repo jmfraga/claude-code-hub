@@ -163,6 +163,67 @@
       </div>
     </section>
 
+    <!-- GRAPH -->
+    <section x-show="tab === 'graph'" x-cloak>
+      <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
+        <h2 class="text-sm font-semibold text-neutral-700">Grafo del ecosistema</h2>
+        <div class="flex items-center gap-2 text-xs">
+          <span class="text-neutral-500" x-text="graphStats"></span>
+          <select x-model="graphLayout" @change="applyGraphLayout()" class="text-xs px-1 py-0.5 border border-neutral-200 rounded">
+            <option value="cose">force (cose)</option>
+            <option value="concentric">concentric</option>
+            <option value="breadthfirst">tree</option>
+            <option value="grid">grid</option>
+          </select>
+          <button @click="loadGraph()" class="px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100">↻ Refresh</button>
+        </div>
+      </div>
+
+      <!-- Legend -->
+      <div class="flex flex-wrap gap-2 mb-2 text-[10px]">
+        <template x-for="(c, t) in graphLegend" :key="t">
+          <span class="flex items-center gap-1 px-1.5 py-0.5 rounded border bg-white" :style="`border-color: ${c}`">
+            <span class="w-2 h-2 rounded-full" :style="`background: ${c}`"></span>
+            <span class="mono uppercase" x-text="t"></span>
+          </span>
+        </template>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3" style="height: 70vh;">
+        <div id="cy-container" class="md:col-span-3 bg-white border border-neutral-200 rounded-lg overflow-hidden"></div>
+        <aside class="md:col-span-1 bg-white border border-neutral-200 rounded-lg p-3 overflow-auto">
+          <template x-if="!graphSelected">
+            <p class="text-xs text-neutral-500">Click un nodo del grafo para verlo aquí.</p>
+          </template>
+          <template x-if="graphSelected">
+            <div>
+              <div class="flex items-center gap-2 mb-1">
+                <span class="w-2.5 h-2.5 rounded-full" :style="`background: ${graphColor(graphSelected.type)}`"></span>
+                <h3 class="text-sm font-semibold" x-text="graphSelected.id"></h3>
+              </div>
+              <div class="text-[10px] mono uppercase text-neutral-500 mb-2" x-text="graphSelected.type"></div>
+              <div class="text-xs text-neutral-700 mb-2" x-show="graphSelected.health">
+                <span class="text-neutral-500">health: </span>
+                <span :class="healthChipClass(graphSelected.health)" class="text-[10px] px-1.5 py-0.5 rounded border mono uppercase" x-text="graphSelected.health"></span>
+              </div>
+              <div x-show="graphNeighbors.length">
+                <div class="text-[10px] uppercase tracking-wide text-neutral-500 mb-1">conexiones (<span x-text="graphNeighbors.length"></span>)</div>
+                <ul class="space-y-0.5 text-xs">
+                  <template x-for="(n, i) in graphNeighbors" :key="i">
+                    <li class="flex items-center gap-1">
+                      <span class="text-neutral-400" x-text="n.direction === 'out' ? '→' : '←'"></span>
+                      <span class="mono text-[10px] text-neutral-400" x-text="n.type"></span>
+                      <button @click="focusNode(n.id)" class="hover:underline truncate text-left" x-text="n.id"></button>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+            </div>
+          </template>
+        </aside>
+      </div>
+    </section>
+
     <!-- PROJECTS -->
     <section x-show="tab === 'projects'" x-cloak>
       <div class="flex items-center justify-between mb-4">
@@ -440,7 +501,7 @@
 <script>
 function hub() {
   return {
-    tabs: ['dashboard', 'projects', 'agents', 'sessions', 'terminal'],
+    tabs: ['dashboard', 'graph', 'projects', 'agents', 'sessions', 'terminal'],
     tab: 'dashboard',
     status: '',
     projects: [],
@@ -451,6 +512,19 @@ function hub() {
     dashboardFilter: '',  // '', 'dirty', 'ahead', 'behind', 'pending', 'gitRepos'
     bulkSummaryRunning: false,
     bulkSummaryStatus: '',
+    graphData: { nodes: [], edges: [] },
+    graphCy: null,
+    graphLayout: 'cose',
+    graphSelected: null,
+    graphLegend: {
+      project: '#3b82f6',
+      repo:    '#3b82f6',
+      machine: '#475569',
+      service: '#06b6d4',
+      agent:   '#a855f7',
+      device:  '#ec4899',
+      unknown: '#9ca3af',
+    },
     agents: [],
     selectedAgent: null,
     selectedAgentDetail: null,
@@ -516,7 +590,134 @@ function hub() {
       return this.claudeSessions.filter(c => c.tag === 'tel-code').length;
     },
 
-    setTab(t) { this.tab = t; },
+    setTab(t) {
+      this.tab = t;
+      if (t === 'graph') this.$nextTick(() => this.loadGraph());
+    },
+
+    graphColor(t) {
+      return this.graphLegend[t] || this.graphLegend.unknown;
+    },
+    get graphStats() {
+      const n = this.graphData.nodes?.length || 0;
+      const e = this.graphData.edges?.length || 0;
+      return `${n} nodos · ${e} aristas`;
+    },
+    get graphNeighbors() {
+      if (!this.graphSelected) return [];
+      const id = this.graphSelected.id;
+      const out = [];
+      for (const e of this.graphData.edges) {
+        if (e.from === id) out.push({ id: e.to,   type: e.type, direction: 'out' });
+        if (e.to   === id) out.push({ id: e.from, type: e.type, direction: 'in'  });
+      }
+      return out;
+    },
+    async loadGraph() {
+      try {
+        const r = await fetch('/api/dashboard/graph');
+        if (!r.ok) return;
+        this.graphData = await r.json();
+        this.renderGraph();
+      } catch (e) { console.error(e); }
+    },
+    renderGraph() {
+      const container = document.getElementById('cy-container');
+      if (!container || !window.cytoscape) return;
+      const nodes = this.graphData.nodes.map(n => ({
+        data: { id: n.id, label: n.id, type: n.type, health: n.health || null },
+      }));
+      const edges = this.graphData.edges.map((e, i) => ({
+        data: { id: `e${i}`, source: e.from, target: e.to, label: e.type },
+      }));
+      if (this.graphCy) { this.graphCy.destroy(); this.graphCy = null; }
+      this.graphCy = cytoscape({
+        container,
+        elements: [...nodes, ...edges],
+        wheelSensitivity: 0.2,
+        style: [
+          {
+            selector: 'node',
+            style: {
+              'background-color': (ele) => this.graphColor(ele.data('type')),
+              'label': 'data(label)',
+              'color': '#111827',
+              'font-size': 10,
+              'font-family': 'Inter, system-ui, sans-serif',
+              'text-valign': 'bottom',
+              'text-margin-y': 4,
+              'text-wrap': 'wrap',
+              'text-max-width': 110,
+              'width': 22,
+              'height': 22,
+              'border-width': 1.5,
+              'border-color': '#ffffff',
+            },
+          },
+          {
+            selector: 'node[health = "green"]',
+            style: { 'border-color': '#10b981', 'border-width': 3 },
+          },
+          {
+            selector: 'node[health = "yellow"]',
+            style: { 'border-color': '#f59e0b', 'border-width': 3 },
+          },
+          {
+            selector: 'node[health = "red"]',
+            style: { 'border-color': '#ef4444', 'border-width': 3 },
+          },
+          {
+            selector: 'node:selected',
+            style: { 'background-color': '#111827', 'border-color': '#fbbf24', 'border-width': 3 },
+          },
+          {
+            selector: 'edge',
+            style: {
+              'curve-style': 'bezier',
+              'target-arrow-shape': 'triangle',
+              'width': 1,
+              'line-color': '#d4d4d8',
+              'target-arrow-color': '#d4d4d8',
+              'label': 'data(label)',
+              'font-size': 7,
+              'color': '#9ca3af',
+              'text-rotation': 'autorotate',
+              'text-margin-y': -6,
+            },
+          },
+          {
+            selector: 'edge:selected',
+            style: { 'line-color': '#fbbf24', 'target-arrow-color': '#fbbf24', 'width': 2 },
+          },
+        ],
+        layout: this._layoutOptions(this.graphLayout),
+      });
+      this.graphCy.on('tap', 'node', (evt) => {
+        this.graphSelected = evt.target.data();
+      });
+      this.graphCy.on('tap', (evt) => {
+        if (evt.target === this.graphCy) this.graphSelected = null;
+      });
+    },
+    _layoutOptions(name) {
+      if (name === 'cose') return { name: 'cose', animate: false, nodeRepulsion: 4000, idealEdgeLength: 80, padding: 30 };
+      if (name === 'concentric') return { name: 'concentric', animate: false, padding: 30, minNodeSpacing: 30 };
+      if (name === 'breadthfirst') return { name: 'breadthfirst', animate: false, padding: 30, spacingFactor: 1.2 };
+      return { name: 'grid', animate: false, padding: 30 };
+    },
+    applyGraphLayout() {
+      if (!this.graphCy) return;
+      this.graphCy.layout(this._layoutOptions(this.graphLayout)).run();
+    },
+    focusNode(id) {
+      if (!this.graphCy) return;
+      const node = this.graphCy.getElementById(id);
+      if (!node || !node.length) return;
+      this.graphCy.elements().unselect();
+      node.select();
+      this.graphCy.animate({ center: { eles: node }, zoom: 1.2 }, { duration: 400 });
+      this.graphSelected = node.data();
+    },
 
     async loadDashboard() {
       try {

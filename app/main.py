@@ -142,7 +142,20 @@ async def api_dashboard_graph():
             if not fr or not to:
                 continue
             edges.append({"from": fr, "to": to, "type": rel.get("type") or "related_to"})
-    return {"nodes": list(nodes.values()), "edges": edges}
+    # Dedup edges on (from, to, type)
+    seen: set[tuple] = set()
+    unique_edges: list[dict] = []
+    for e in edges:
+        key = (e["from"], e["to"], e["type"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_edges.append(e)
+    # Ensure every edge endpoint exists as a node (LLM may name something not previously seen)
+    for e in unique_edges:
+        for endpoint in (e["from"], e["to"]):
+            nodes.setdefault(endpoint, {"id": endpoint, "type": "unknown"})
+    return {"nodes": list(nodes.values()), "edges": unique_edges}
 
 
 @app.get("/api/projects/{name}/files")
