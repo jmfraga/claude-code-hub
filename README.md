@@ -4,7 +4,8 @@ A small self-hosted web panel to manage your local **Claude Code** sessions, age
 
 Built for the case where you have a beefy "brain" machine (mine is a Mac Mini M4) running long-lived Claude Code sessions and bots, and you want a tidy UI to:
 
-- Browse your **Projects**: git status, last commit, run a small whitelist of commands (`git status`, `git pull`, `npm test`, …) and stream output live via SSE.
+- See a **Dashboard** of the whole ecosystem at a glance: each project shows its git state, pending checkbox items pulled from `TODO.md` / `ROADMAP.md`, recent Claude sessions that mention the project, and active tmux. Click the top stats (dirty / ahead / behind / pendientes) to filter. Optional **🧠 resumen** button per project calls a local LLM (MLX / Ollama / any OpenAI-compatible endpoint) for a natural-language overview, health flag (green / yellow / red), suggested next action, and structured `entities` + `relations` (which feed `/api/dashboard/graph` for the future graph view).
+- Browse your **Projects**: git status, last commit, run a small whitelist of commands (`git status`, `git pull`, `npm test`, …) and stream output live via SSE. Each project has a file browser drawer with breadcrumb-navigable tree and inline file viewer (1 MB cap, binary detection, path-traversal guard).
 - Manage **Claude Code sessions**: list every session JSONL with metadata (title, last activity, turn count, size, tag), **resume** any session in a tmux pane, **delete** stale ones, **bulk-delete** by age (great for cleaning up bot-spawned sessions). Create a **new named session** from the UI — the hub starts `claude` and auto-runs `/rename <title>` so it shows up with a friendly name.
 - Browse the **Agents** you have registered (`~/.claude/agents/*.md` and per-project ones): name, description, model, color, full system prompt.
 - Drop into a **Terminal** (ttyd over a shared tmux session) — with a `📋 copy buffer` button to copy whatever you last selected with the mouse into the browser's clipboard.
@@ -15,7 +16,7 @@ Stack: FastAPI + Jinja + HTMX + Alpine.js + Tailwind CDN + ttyd + tmux. No build
 
 ## Screenshot
 
-The UI is intentionally plain — four tabs (Projects / Agents / Sessions / Terminal), small components, no JS framework dance.
+The UI is intentionally plain — five tabs (Dashboard / Projects / Agents / Sessions / Terminal), small components, no JS framework dance.
 
 ## How sessions are tracked
 
@@ -122,6 +123,9 @@ Adapt the launchd plists to two `~/.config/systemd/user/*.service` units running
 | POST | `/api/claude-sessions/{id}/resume` | Resume a session in tmux |
 | POST | `/api/claude-sessions/{id}/delete` | Delete `.jsonl` (and dir if exists) |
 | POST | `/api/claude-sessions/bulk-delete` | `{tag?, older_than_days?}` |
+| GET | `/api/dashboard` | Enriched project list (git + pending + sessions + tmux) |
+| GET / POST | `/api/dashboard/summary/{name}` | Get cached / regenerate LLM summary for a project |
+| GET | `/api/dashboard/graph` | Aggregate nodes & edges from all cached summaries (for graph view) |
 | GET | `/api/agents` | List agents (user-level + per-project) |
 | GET | `/api/agents/file?path=…` | Read one agent's frontmatter + body |
 

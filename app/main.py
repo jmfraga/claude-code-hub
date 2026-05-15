@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from . import agents, claude_sessions, jobs, projects, tmux_utils
+from . import agents, claude_sessions, dashboard, git_utils, jobs, llm, projects, tmux_utils
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = BASE_DIR / "config" / "settings.yaml"
@@ -42,7 +42,9 @@ def load_settings() -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse(request, "dashboard.html")
+    resp = templates.TemplateResponse(request, "dashboard.html")
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return resp
 
 
 @app.get("/api/tmux/buffer")
@@ -61,6 +63,86 @@ async def api_config():
 async def api_projects():
     s = load_settings()
     return projects.scan(Path(s["projects_root"]).expanduser(), s.get("extra_projects", []) or [])
+
+
+@app.get("/api/dashboard")
+async def api_dashboard():
+    s = load_settings()
+    plist = projects.scan(Path(s["projects_root"]).expanduser(), s.get("extra_projects", []) or [])
+    return dashboard.build(plist)
+
+
+CACHE_DIR = Path.home() / ".cache" / "cchub" / "summaries"
+
+
+def _cache_path(name: str) -> Path:
+    safe = "".join(c for c in name if c.isalnum() or c in "-_.")[:80] or "p"
+    return CACHE_DIR / f"{safe}.json"
+
+
+@app.get("/api/dashboard/summary/{name}")
+async def api_get_summary(name: str):
+    path = _cache_path(name)
+    if not path.is_file():
+        return {"cached": False}
+    try:
+        import json as _json
+        return {"cached": True, **_json.loads(path.read_text(encoding="utf-8"))}
+    except (OSError, ValueError):
+        return {"cached": False}
+
+
+@app.post("/api/dashboard/summary/{name}")
+async def api_make_summary(name: str):
+    s = load_settings()
+    plist = projects.scan(Path(s["projects_root"]).expanduser(), s.get("extra_projects", []) or [])
+    proj = projects.find(plist, name)
+    if not proj:
+        raise HTTPException(404, "project not found")
+    enriched = dashboard.build([proj])[0]
+    commits = git_utils.recent_commits(Path(proj["path"]), n=5)
+    result = llm.summarize(enriched, commits, s.get("llm") or {})
+    if not result.get("ok"):
+        raise HTTPException(502, result.get("error") or "llm failed")
+    import json as _json
+    import time as _time
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {**result, "generated_at": _time.time()}
+    try:
+        _cache_path(name).write_text(_json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+    return payload
+
+
+@app.get("/api/dashboard/graph")
+async def api_dashboard_graph():
+    """Aggregate cached summaries into a graph payload for V3."""
+    nodes: dict[str, dict] = {}
+    edges: list[dict] = []
+    if not CACHE_DIR.is_dir():
+        return {"nodes": [], "edges": []}
+    import json as _json
+    for f in CACHE_DIR.glob("*.json"):
+        try:
+            data = _json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        project_name = f.stem
+        nodes.setdefault(project_name, {"id": project_name, "type": "project", "health": data.get("health", "yellow")})
+        for ent in data.get("entities", []) or []:
+            ename = (ent.get("name") or "").strip()
+            if not ename:
+                continue
+            etype = ent.get("type") or "related"
+            nodes.setdefault(ename, {"id": ename, "type": etype})
+        for rel in data.get("relations", []) or []:
+            fr = (rel.get("from") or "").strip()
+            to = (rel.get("to") or "").strip()
+            if not fr or not to:
+                continue
+            edges.append({"from": fr, "to": to, "type": rel.get("type") or "related_to"})
+    return {"nodes": list(nodes.values()), "edges": edges}
 
 
 @app.get("/api/projects/{name}/files")

@@ -10,6 +10,14 @@ extra_projects: []          # Additional project paths outside projects_root
 # clipboard so you can resume the session in your laptop's native terminal.
 ssh_target: ""               # e.g. "you@host.tailscale-name" or "you@10.0.0.5"
 
+# Optional. Local LLM endpoint for the Dashboard tab's "🧠 resumen" button.
+# OpenAI-compatible /v1/chat/completions (MLX, Ollama, vLLM, llama.cpp, …).
+# Leave url empty to disable summaries (the button will 502).
+llm:
+  url: ""                          # e.g. http://127.0.0.1:8088/v1/chat/completions
+  model: ""                        # e.g. mlx-community/Qwen3.6-35B-A3B-4bit
+  timeout: 60                      # seconds
+
 # Whitelist of commands the hub can run on a project.
 # IDs must be unique. cmd is an argv list (no shell).
 allowed_commands:

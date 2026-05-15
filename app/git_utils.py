@@ -54,3 +54,17 @@ def last_commit(path: Path) -> dict | None:
     if len(parts) != 3:
         return None
     return {"hash": parts[0], "ago": parts[1], "subject": parts[2]}
+
+
+def recent_commits(path: Path, n: int = 5) -> list[dict]:
+    if not is_repo(path):
+        return []
+    rc, out, _ = _run(["git", "log", f"-{n}", "--format=%h|%ar|%s"], path)
+    if rc != 0:
+        return []
+    commits: list[dict] = []
+    for line in out.splitlines():
+        parts = line.split("|", 2)
+        if len(parts) == 3:
+            commits.append({"hash": parts[0], "ago": parts[1], "subject": parts[2]})
+    return commits

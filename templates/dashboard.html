@@ -31,6 +31,138 @@
   <!-- Content -->
   <main class="max-w-6xl mx-auto px-6 py-6">
 
+    <!-- DASHBOARD -->
+    <section x-show="tab === 'dashboard'" x-cloak>
+      <div class="flex items-center justify-between mb-4 gap-2 flex-wrap">
+        <h2 class="text-sm font-semibold text-neutral-700">Resumen del ecosistema</h2>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-neutral-500" x-show="bulkSummaryStatus" x-text="bulkSummaryStatus"></span>
+          <button @click="genAllSummaries()" :disabled="bulkSummaryRunning"
+                  class="text-xs px-2 py-1 rounded border border-purple-200 bg-white text-purple-700 hover:bg-purple-50 disabled:opacity-40"
+                  title="Generar resumen de todos los proyectos visibles">🧠 todos</button>
+          <button @click="loadDashboard()" class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100">↻ Refresh</button>
+        </div>
+      </div>
+
+      <!-- Stats bar (click para filtrar) -->
+      <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-4">
+        <template x-for="stat in [
+          { key: '',         label: 'proyectos',  value: dashboardStats().projects,  color: 'neutral' },
+          { key: 'gitRepos', label: 'git repos',  value: dashboardStats().gitRepos,  color: 'blue'    },
+          { key: 'dirty',    label: 'dirty',      value: dashboardStats().dirty,     color: 'amber'   },
+          { key: 'ahead',    label: 'ahead',      value: dashboardStats().ahead,     color: 'emerald' },
+          { key: 'behind',   label: 'behind',     value: dashboardStats().behind,    color: 'red'     },
+          { key: 'pending',  label: 'pendientes', value: dashboardStats().pending,   color: 'purple'  },
+        ]" :key="stat.label">
+          <button @click="dashboardFilter = (dashboardFilter === stat.key ? '' : stat.key)"
+                  :class="dashboardFilter === stat.key ? statCardActiveClass(stat.color) : 'bg-white border-neutral-200'"
+                  class="border rounded-lg p-3 text-left hover:border-neutral-400 transition">
+            <div class="text-xs text-neutral-500 uppercase tracking-wide" x-text="stat.label"></div>
+            <div class="text-xl font-semibold mono" x-text="stat.value"></div>
+          </button>
+        </template>
+      </div>
+
+      <!-- Project cards -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <template x-for="p in filteredDashboard()" :key="p.path">
+          <div class="bg-white border border-neutral-200 rounded-lg p-4 hover:border-neutral-300 transition">
+            <div class="flex items-center gap-2 mb-1">
+              <span :class="dotClass(p)" class="w-2 h-2 rounded-full shrink-0"></span>
+              <h3 class="font-medium text-sm truncate" x-text="p.name"></h3>
+              <span class="text-xs text-neutral-500 mono shrink-0" x-text="branchLabel(p)"></span>
+              <div class="ml-auto flex gap-1 items-center">
+                <span x-show="summaries[p.name]?.health" :class="healthChipClass(summaries[p.name]?.health)" class="text-[10px] px-1.5 py-0.5 rounded border mono uppercase" x-text="summaries[p.name]?.health"></span>
+                <button @click.prevent="genSummary(p.name)"
+                        :class="summaryLoading[p.name] ? 'opacity-50 cursor-wait' : ''"
+                        class="px-2 py-0.5 text-[10px] rounded border border-purple-200 bg-white text-purple-700 hover:bg-purple-50"
+                        title="Generar resumen con LLM local">
+                  <span x-show="!summaryLoading[p.name]">🧠</span>
+                  <span x-show="summaryLoading[p.name]">⏳</span>
+                </button>
+                <button @click="openFiles(p)" class="px-2 py-0.5 text-[10px] rounded border border-neutral-200 hover:bg-neutral-100" title="files">📁</button>
+              </div>
+            </div>
+            <div class="text-[11px] text-neutral-500 mono truncate" x-text="p.path"></div>
+
+            <!-- LLM summary -->
+            <div class="mt-2 p-2 rounded border" x-show="summaries[p.name]"
+                 :class="healthBorderClass(summaries[p.name]?.health)">
+              <p class="text-xs text-neutral-800 leading-snug" x-text="summaries[p.name]?.summary"></p>
+              <p class="text-[11px] text-neutral-600 mt-1.5" x-show="summaries[p.name]?.next_action">
+                <span class="font-semibold text-neutral-500">→</span>
+                <span x-text="summaries[p.name]?.next_action"></span>
+              </p>
+              <div class="flex flex-wrap gap-1 mt-2" x-show="summaries[p.name]?.entities?.length">
+                <template x-for="(e, i) in summaries[p.name].entities" :key="i">
+                  <span :class="entityChipClass(e.type)" class="text-[10px] px-1.5 py-0.5 rounded border mono">
+                    <span class="opacity-60" x-text="e.type"></span>:<span x-text="e.name"></span>
+                  </span>
+                </template>
+              </div>
+              <p class="text-[10px] text-neutral-400 mt-1.5 mono" x-show="summaries[p.name]?.generated_at">
+                generado <span x-text="relativeTime(summaries[p.name].generated_at)"></span>
+              </p>
+            </div>
+
+            <!-- Last commit -->
+            <div class="text-xs text-neutral-600 mt-2 truncate" x-show="p.last_commit">
+              <span class="mono text-neutral-400" x-text="p.last_commit?.hash"></span>
+              · <span x-text="p.last_commit?.ago"></span>
+              · <span x-text="p.last_commit?.subject"></span>
+            </div>
+
+            <!-- Pending -->
+            <div class="mt-3" x-show="p.pending && p.pending.length">
+              <div class="text-[10px] uppercase tracking-wide text-neutral-500 mb-1">
+                pendientes (<span x-text="p.pending.length"></span><span x-show="p.pending.length >= 8">+</span>)
+              </div>
+              <ul class="space-y-0.5">
+                <template x-for="(item, i) in p.pending" :key="i">
+                  <li class="text-xs text-neutral-700 flex gap-1">
+                    <span class="text-amber-500 shrink-0">□</span>
+                    <span class="truncate" :title="item.text" x-text="item.text"></span>
+                  </li>
+                </template>
+              </ul>
+            </div>
+
+            <!-- Recent sessions -->
+            <div class="mt-3" x-show="p.recent_sessions && p.recent_sessions.length">
+              <div class="text-[10px] uppercase tracking-wide text-neutral-500 mb-1">sesiones recientes</div>
+              <ul class="space-y-0.5">
+                <template x-for="s in p.recent_sessions" :key="s.id">
+                  <li class="text-xs flex items-center gap-1.5">
+                    <button @click="tab='sessions'; resumeClaudeSession(s.id)"
+                            class="text-left hover:underline truncate flex-1"
+                            :title="s.title">
+                      <span class="mono text-[10px] text-neutral-400" x-text="s.id.slice(0,6)"></span>
+                      <span x-text="s.title"></span>
+                    </button>
+                    <span class="text-[10px] text-neutral-400 shrink-0" x-text="relativeTime(s.last_activity)"></span>
+                  </li>
+                </template>
+              </ul>
+            </div>
+
+            <!-- Active tmux -->
+            <div class="mt-3" x-show="p.active_tmux && p.active_tmux.length">
+              <div class="text-[10px] uppercase tracking-wide text-neutral-500 mb-1">tmux activo</div>
+              <ul class="space-y-0.5">
+                <template x-for="t in p.active_tmux" :key="t.name">
+                  <li class="text-xs flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full" :class="t.attached ? 'bg-emerald-500' : 'bg-neutral-300'"></span>
+                    <button @click="attachSession(t.name)" class="hover:underline mono" x-text="t.name"></button>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </div>
+        </template>
+        <div x-show="!dashboardData.length" class="text-sm text-neutral-500 col-span-2">Cargando…</div>
+      </div>
+    </section>
+
     <!-- PROJECTS -->
     <section x-show="tab === 'projects'" x-cloak>
       <div class="flex items-center justify-between mb-4">
@@ -308,11 +440,17 @@
 <script>
 function hub() {
   return {
-    tabs: ['projects', 'agents', 'sessions', 'terminal'],
-    tab: 'projects',
+    tabs: ['dashboard', 'projects', 'agents', 'sessions', 'terminal'],
+    tab: 'dashboard',
     status: '',
     projects: [],
     sessions: [],
+    dashboardData: [],
+    summaries: {},
+    summaryLoading: {},
+    dashboardFilter: '',  // '', 'dirty', 'ahead', 'behind', 'pending', 'gitRepos'
+    bulkSummaryRunning: false,
+    bulkSummaryStatus: '',
     agents: [],
     selectedAgent: null,
     selectedAgentDetail: null,
@@ -332,8 +470,10 @@ function hub() {
       this.loadSessions();
       this.loadClaudeSessions();
       this.loadAgents();
+      this.loadDashboard();
       setInterval(() => { if (this.tab === 'projects') this.loadProjects(); }, 60000);
       setInterval(() => { if (this.tab === 'sessions') this.loadClaudeSessions(); }, 60000);
+      setInterval(() => { if (this.tab === 'dashboard') this.loadDashboard(); }, 60000);
     },
     async loadConfig() {
       try {
@@ -378,6 +518,121 @@ function hub() {
 
     setTab(t) { this.tab = t; },
 
+    async loadDashboard() {
+      try {
+        const r = await fetch('/api/dashboard');
+        if (r.ok) {
+          this.dashboardData = await r.json();
+          // Prefetch cached summaries (no LLM call)
+          this.dashboardData.forEach(p => this.loadCachedSummary(p.name));
+        }
+      } catch (e) { /* ignore */ }
+    },
+    async loadCachedSummary(name) {
+      try {
+        const r = await fetch(`/api/dashboard/summary/${encodeURIComponent(name)}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.cached) this.summaries = { ...this.summaries, [name]: d };
+      } catch (e) { /* ignore */ }
+    },
+    async genSummary(name) {
+      // Immediate visual feedback so the user knows the click registered
+      this.summaryLoading[name] = true;
+      this.copyToast = `🧠 generando ${name}…`;
+      try {
+        const r = await fetch(`/api/dashboard/summary/${encodeURIComponent(name)}`, { method: 'POST' });
+        if (!r.ok) {
+          const t = await r.text();
+          this.copyToast = `❌ LLM falló (${r.status}) — ${t.slice(0, 120)}`;
+          setTimeout(() => { this.copyToast = ''; }, 6000);
+          return null;
+        }
+        const d = await r.json();
+        this.summaries[name] = d;
+        this.copyToast = `✅ ${name}: ${d.health || ''}`;
+        setTimeout(() => { this.copyToast = ''; }, 3000);
+        return d;
+      } catch (e) {
+        this.copyToast = '❌ ' + e;
+        setTimeout(() => { this.copyToast = ''; }, 4000);
+        return null;
+      } finally {
+        delete this.summaryLoading[name];
+      }
+    },
+    async genAllSummaries() {
+      const targets = this.filteredDashboard();
+      if (!targets.length) return;
+      this.bulkSummaryRunning = true;
+      let done = 0;
+      for (const p of targets) {
+        this.bulkSummaryStatus = `${done + 1}/${targets.length} · ${p.name}`;
+        await this.genSummary(p.name);
+        done++;
+      }
+      this.bulkSummaryRunning = false;
+      this.bulkSummaryStatus = `✅ ${done} resúmenes generados`;
+      setTimeout(() => { this.bulkSummaryStatus = ''; }, 5000);
+    },
+    healthChipClass(h) {
+      if (h === 'green')  return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+      if (h === 'yellow') return 'bg-amber-100 text-amber-700 border-amber-200';
+      if (h === 'red')    return 'bg-red-100 text-red-700 border-red-200';
+      return 'bg-neutral-100 text-neutral-700 border-neutral-200';
+    },
+    healthBorderClass(h) {
+      if (h === 'green')  return 'bg-emerald-50 border-emerald-200';
+      if (h === 'yellow') return 'bg-amber-50 border-amber-200';
+      if (h === 'red')    return 'bg-red-50 border-red-200';
+      return 'bg-neutral-50 border-neutral-200';
+    },
+    entityChipClass(t) {
+      const map = {
+        machine:  'bg-slate-100 text-slate-700 border-slate-200',
+        service:  'bg-cyan-100 text-cyan-700 border-cyan-200',
+        agent:    'bg-purple-100 text-purple-700 border-purple-200',
+        project:  'bg-blue-100 text-blue-700 border-blue-200',
+        repo:     'bg-blue-100 text-blue-700 border-blue-200',
+        device:   'bg-pink-100 text-pink-700 border-pink-200',
+      };
+      return (map[t] || 'bg-neutral-100 text-neutral-700 border-neutral-200') + ' border';
+    },
+    filteredDashboard() {
+      const f = this.dashboardFilter;
+      if (!f) return this.dashboardData;
+      return this.dashboardData.filter(p => {
+        if (f === 'gitRepos') return p.git.is_repo;
+        if (f === 'dirty')    return p.git.is_repo && p.git.dirty;
+        if (f === 'ahead')    return p.git.is_repo && p.git.ahead;
+        if (f === 'behind')   return p.git.is_repo && p.git.behind;
+        if (f === 'pending')  return (p.pending || []).length > 0;
+        return true;
+      });
+    },
+    statCardActiveClass(color) {
+      const map = {
+        neutral: 'bg-neutral-200 border-neutral-400',
+        blue:    'bg-blue-100 border-blue-400',
+        amber:   'bg-amber-100 border-amber-400',
+        emerald: 'bg-emerald-100 border-emerald-400',
+        red:     'bg-red-100 border-red-400',
+        purple:  'bg-purple-100 border-purple-400',
+      };
+      return map[color] || 'bg-neutral-200 border-neutral-400';
+    },
+    dashboardStats() {
+      const d = this.dashboardData;
+      return {
+        projects: d.length,
+        gitRepos: d.filter(p => p.git.is_repo).length,
+        dirty: d.filter(p => p.git.is_repo && p.git.dirty).length,
+        ahead: d.filter(p => p.git.is_repo && p.git.ahead).length,
+        behind: d.filter(p => p.git.is_repo && p.git.behind).length,
+        pending: d.reduce((acc, p) => acc + (p.pending?.length || 0), 0),
+        activeSessions: d.filter(p => (p.recent_sessions?.length || 0) > 0 || (p.active_tmux?.length || 0) > 0).length,
+      };
+    },
     async loadProjects() {
       this.status = 'cargando proyectos…';
       const r = await fetch('/api/projects');
