@@ -45,14 +45,16 @@
       </div>
 
       <!-- Stats bar (click para filtrar) -->
-      <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mb-4">
+      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2 mb-4">
         <template x-for="stat in [
-          { key: '',         label: 'proyectos',  value: dashboardStats().projects,  color: 'neutral' },
-          { key: 'gitRepos', label: 'git repos',  value: dashboardStats().gitRepos,  color: 'blue'    },
-          { key: 'dirty',    label: 'dirty',      value: dashboardStats().dirty,     color: 'amber'   },
-          { key: 'ahead',    label: 'ahead',      value: dashboardStats().ahead,     color: 'emerald' },
-          { key: 'behind',   label: 'behind',     value: dashboardStats().behind,    color: 'red'     },
-          { key: 'pending',  label: 'pendientes', value: dashboardStats().pending,   color: 'purple'  },
+          { key: '',           label: 'proyectos',  value: dashboardStats().projects,    color: 'neutral' },
+          { key: 'gitRepos',   label: 'git repos',  value: dashboardStats().gitRepos,    color: 'blue'    },
+          { key: 'dirty',      label: 'dirty',      value: dashboardStats().dirty,       color: 'amber'   },
+          { key: 'ahead',      label: 'ahead',      value: dashboardStats().ahead,       color: 'emerald' },
+          { key: 'behind',     label: 'behind',     value: dashboardStats().behind,      color: 'red'     },
+          { key: 'pending',    label: 'pendientes', value: dashboardStats().pending,     color: 'purple'  },
+          { key: 'fable',      label: 'fable pend', value: dashboardStats().fablePending, color: 'amber'  },
+          { key: 'fableAlta',  label: 'fable ALTA', value: dashboardStats().fableAlta,   color: 'red'     },
         ]" :key="stat.label">
           <button @click="dashboardFilter = (dashboardFilter === stat.key ? '' : stat.key)"
                   :class="dashboardFilter === stat.key ? statCardActiveClass(stat.color) : 'bg-white border-neutral-200'"
@@ -61,6 +63,23 @@
             <div class="text-xl font-semibold mono" x-text="stat.value"></div>
           </button>
         </template>
+      </div>
+
+      <!-- Project search/sort -->
+      <div class="bg-neutral-50 border border-neutral-200 rounded-lg p-3 mb-3 flex items-center gap-2 text-xs flex-wrap">
+        <input type="text" x-model="projectSearch" placeholder="buscar (nombre o path)…"
+               class="flex-1 min-w-[200px] px-2 py-1 border border-neutral-300 rounded text-xs" />
+        <select x-model="projectSort" class="px-2 py-1 border border-neutral-300 rounded text-xs bg-white">
+          <option value="name_asc">A → Z</option>
+          <option value="name_desc">Z → A</option>
+          <option value="dirty_desc">Más dirty</option>
+          <option value="pending_desc">Más pendientes</option>
+          <option value="ahead_desc">Más ahead</option>
+          <option value="behind_desc">Más behind</option>
+          <option value="fable_alta_desc">Más Fable ALTA</option>
+          <option value="fable_pend_desc">Más Fable pendientes</option>
+        </select>
+        <span class="text-neutral-500" x-text="filteredDashboard().length + ' / ' + dashboardData.length"></span>
       </div>
 
       <!-- Project cards -->
@@ -81,6 +100,10 @@
                   <span x-show="summaryLoading[p.name]">⏳</span>
                 </button>
                 <button @click="openFiles(p)" class="px-2 py-0.5 text-[10px] rounded border border-neutral-200 hover:bg-neutral-100" title="files">📁</button>
+                <span x-show="p.fable" :class="fablePillClass(p.fable)"
+                      :title="fablePillTitle(p.fable)"
+                      class="text-[10px] px-1.5 py-0.5 rounded border mono"
+                      x-text="fablePillLabel(p.fable)"></span>
               </div>
             </div>
             <div class="text-[11px] text-neutral-500 mono truncate" x-text="p.path"></div>
@@ -273,7 +296,7 @@
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-sm font-semibold text-neutral-700">Sesiones Claude Code</h2>
           <div class="flex items-center gap-2">
-            <span class="text-xs text-neutral-500" x-text="claudeSessions.length + ' (' + claudeTelCodeCount + ' tel-code)'"></span>
+            <span class="text-xs text-neutral-500" x-text="claudeSessions.length + ' sesiones'"></span>
             <button @click="loadClaudeSessions()" class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100">↻ Refresh</button>
           </div>
         </div>
@@ -287,21 +310,23 @@
                   class="px-2 py-1 rounded border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50 disabled:opacity-40">crear →</button>
         </div>
         <div class="bg-neutral-50 border border-neutral-200 rounded-lg p-3 mb-3 flex items-center gap-2 text-xs flex-wrap">
-          <span class="text-neutral-600">Borrar tel-code más viejas que</span>
-          <input type="number" min="0" x-model.number="bulkDays" class="w-16 px-2 py-1 border border-neutral-300 rounded mono text-xs" />
-          <span class="text-neutral-600">días</span>
-          <button @click="bulkDeleteTelCode()" class="px-2 py-1 rounded border border-red-200 bg-white text-red-700 hover:bg-red-50">borrar</button>
-          <span class="text-neutral-500" x-show="bulkResult" x-text="bulkResult"></span>
+          <input type="text" x-model="sessionsSearch" placeholder="buscar (título o id)…"
+                 class="flex-1 min-w-[180px] px-2 py-1 border border-neutral-300 rounded text-xs" />
+          <select x-model="sessionsSort" class="px-2 py-1 border border-neutral-300 rounded text-xs bg-white">
+            <option value="recent_desc">Reciente ↓</option>
+            <option value="recent_asc">Reciente ↑</option>
+            <option value="title_asc">A → Z</option>
+            <option value="title_desc">Z → A</option>
+            <option value="turns_desc">Más turnos</option>
+          </select>
+          <span class="text-neutral-500" x-text="filteredClaudeSessions.length + ' / ' + claudeSessions.length"></span>
         </div>
 
         <div class="space-y-2">
-          <template x-for="c in claudeSessions" :key="c.id">
+          <template x-for="c in filteredClaudeSessions" :key="c.id">
             <div class="bg-white border border-neutral-200 rounded-lg p-3 flex items-center justify-between gap-3">
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 flex-wrap">
-                  <span :class="c.tag === 'tel-code' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-neutral-100 text-neutral-700 border-neutral-200'"
-                        class="text-[10px] font-medium px-1.5 py-0.5 rounded border mono uppercase"
-                        x-text="c.tag"></span>
                   <span class="text-sm font-medium truncate" x-text="c.title"></span>
                 </div>
                 <div class="text-xs text-neutral-500 mt-1 mono">
@@ -319,6 +344,7 @@
             </div>
           </template>
           <div x-show="!claudeSessions.length" class="text-sm text-neutral-500">No hay sesiones de Claude Code.</div>
+          <div x-show="claudeSessions.length && !filteredClaudeSessions.length" class="text-sm text-neutral-500">Ningún resultado con esos filtros.</div>
         </div>
       </div>
 
@@ -329,8 +355,28 @@
           <h2 class="text-sm font-semibold text-neutral-700">Sesiones tmux</h2>
           <button @click="loadSessions()" class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100">↻ Refresh</button>
         </div>
+
+        <div class="bg-neutral-50 border border-neutral-200 rounded-lg p-3 mb-3 flex items-center gap-2 text-xs flex-wrap">
+          <input type="text" x-model="tmuxSearch" placeholder="buscar por nombre…"
+                 class="flex-1 min-w-[180px] px-2 py-1 border border-neutral-300 rounded text-xs" />
+          <select x-model="tmuxSort" class="px-2 py-1 border border-neutral-300 rounded text-xs bg-white">
+            <option value="created_desc">Reciente ↓</option>
+            <option value="created_asc">Reciente ↑</option>
+            <option value="name_asc">A → Z</option>
+            <option value="name_desc">Z → A</option>
+          </select>
+          <div class="flex gap-1">
+            <template x-for="opt in ['all','attached','detached']" :key="opt">
+              <button @click="tmuxAttachFilter = opt"
+                      :class="tmuxAttachFilter === opt ? 'bg-neutral-900 text-white border-neutral-900' : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-100'"
+                      class="px-2 py-1 text-xs rounded border capitalize" x-text="opt"></button>
+            </template>
+          </div>
+          <span class="text-neutral-500" x-text="filteredSessions.length + ' / ' + sessions.length"></span>
+        </div>
+
         <div class="space-y-2">
-          <template x-for="s in sessions" :key="s.name">
+          <template x-for="s in filteredSessions" :key="s.name">
             <div class="bg-white border border-neutral-200 rounded-lg p-3 flex items-center justify-between">
               <div>
                 <div class="text-sm font-medium mono" x-text="s.name"></div>
@@ -343,6 +389,7 @@
             </div>
           </template>
           <div x-show="!sessions.length" class="text-sm text-neutral-500">No hay sesiones tmux activas.</div>
+          <div x-show="sessions.length && !filteredSessions.length" class="text-sm text-neutral-500">Ningún resultado con esos filtros.</div>
         </div>
       </div>
     </section>
@@ -529,8 +576,13 @@ function hub() {
     selectedAgent: null,
     selectedAgentDetail: null,
     claudeSessions: [],
-    bulkDays: 7,
-    bulkResult: '',
+    sessionsSearch: '',
+    sessionsSort: 'recent_desc',
+    tmuxSearch: '',
+    tmuxSort: 'created_desc',
+    tmuxAttachFilter: 'all',
+    projectSearch: '',
+    projectSort: 'name_asc',
     newTitle: '',
     sshTarget: '',
     copyToast: '',
@@ -586,8 +638,39 @@ function hub() {
       this.copyToClipboard(`ssh -t ${this.sshTarget} 'tmux attach -t ${name}'`, 'comando ssh');
     },
 
-    get claudeTelCodeCount() {
-      return this.claudeSessions.filter(c => c.tag === 'tel-code').length;
+    get filteredSessions() {
+      const q = (this.tmuxSearch || '').trim().toLowerCase();
+      const attach = this.tmuxAttachFilter;
+      let out = this.sessions;
+      if (attach === 'attached') out = out.filter(s => s.attached);
+      else if (attach === 'detached') out = out.filter(s => !s.attached);
+      if (q) out = out.filter(s => (s.name || '').toLowerCase().includes(q));
+      const sorters = {
+        created_desc: (a, b) => (b.created || 0) - (a.created || 0),
+        created_asc:  (a, b) => (a.created || 0) - (b.created || 0),
+        name_asc:     (a, b) => (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' }),
+        name_desc:    (a, b) => (b.name || '').localeCompare(a.name || '', 'es', { sensitivity: 'base' }),
+      };
+      const cmp = sorters[this.tmuxSort] || sorters.created_desc;
+      return [...out].sort(cmp);
+    },
+
+    get filteredClaudeSessions() {
+      const q = (this.sessionsSearch || '').trim().toLowerCase();
+      let out = this.claudeSessions;
+      if (q) out = out.filter(c =>
+        (c.title || '').toLowerCase().includes(q) ||
+        (c.id || '').toLowerCase().includes(q)
+      );
+      const sorters = {
+        recent_desc: (a, b) => b.last_activity - a.last_activity,
+        recent_asc:  (a, b) => a.last_activity - b.last_activity,
+        title_asc:   (a, b) => (a.title || '').localeCompare(b.title || '', 'es', { sensitivity: 'base' }),
+        title_desc:  (a, b) => (b.title || '').localeCompare(a.title || '', 'es', { sensitivity: 'base' }),
+        turns_desc:  (a, b) => (b.turn_count || 0) - (a.turn_count || 0),
+      };
+      const cmp = sorters[this.sessionsSort] || sorters.recent_desc;
+      return [...out].sort(cmp);
     },
 
     setTab(t) {
@@ -788,6 +871,28 @@ function hub() {
       if (h === 'red')    return 'bg-red-50 border-red-200';
       return 'bg-neutral-50 border-neutral-200';
     },
+    fablePillLabel(fb) {
+      if (!fb) return '';
+      if (fb.no_findings) return 'fable ✓';
+      const pend = fb.total - fb.done;
+      if (pend === 0) return `fable ${fb.done}/${fb.total} ✓`;
+      const altaTxt = fb.alta_pending > 0 ? ` · ${fb.alta_pending}A` : '';
+      return `fable ${fb.done}/${fb.total}${altaTxt}`;
+    },
+    fablePillClass(fb) {
+      if (!fb) return '';
+      if (fb.no_findings) return 'bg-neutral-100 text-neutral-500 border-neutral-200';
+      const pend = fb.total - fb.done;
+      if (pend === 0) return 'bg-emerald-100 text-emerald-700 border-emerald-300';
+      if (fb.alta_pending > 0) return 'bg-red-100 text-red-700 border-red-300';
+      return 'bg-amber-100 text-amber-700 border-amber-300';
+    },
+    fablePillTitle(fb) {
+      if (!fb) return '';
+      if (fb.no_findings) return 'Fable: sin hallazgos';
+      const pend = fb.total - fb.done;
+      return `Fable: ${fb.done}/${fb.total} resueltos · ${pend} pendientes · ${fb.alta_pending} ALTA pendientes`;
+    },
     entityChipClass(t) {
       const map = {
         machine:  'bg-slate-100 text-slate-700 border-slate-200',
@@ -801,15 +906,34 @@ function hub() {
     },
     filteredDashboard() {
       const f = this.dashboardFilter;
-      if (!f) return this.dashboardData;
-      return this.dashboardData.filter(p => {
+      const q = (this.projectSearch || '').trim().toLowerCase();
+      let out = this.dashboardData;
+      if (f) out = out.filter(p => {
         if (f === 'gitRepos') return p.git.is_repo;
         if (f === 'dirty')    return p.git.is_repo && p.git.dirty;
         if (f === 'ahead')    return p.git.is_repo && p.git.ahead;
         if (f === 'behind')   return p.git.is_repo && p.git.behind;
         if (f === 'pending')  return (p.pending || []).length > 0;
+        if (f === 'fable')    return p.fable && !p.fable.no_findings && (p.fable.total - p.fable.done) > 0;
+        if (f === 'fableAlta') return p.fable && (p.fable.alta_pending || 0) > 0;
         return true;
       });
+      if (q) out = out.filter(p =>
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.path || '').toLowerCase().includes(q)
+      );
+      const sorters = {
+        name_asc:     (a, b) => (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' }),
+        name_desc:    (a, b) => (b.name || '').localeCompare(a.name || '', 'es', { sensitivity: 'base' }),
+        dirty_desc:   (a, b) => (b.git?.dirty || 0) - (a.git?.dirty || 0),
+        pending_desc: (a, b) => (b.pending?.length || 0) - (a.pending?.length || 0),
+        ahead_desc:   (a, b) => (b.git?.ahead || 0) - (a.git?.ahead || 0),
+        behind_desc:  (a, b) => (b.git?.behind || 0) - (a.git?.behind || 0),
+        fable_alta_desc: (a, b) => (b.fable?.alta_pending || 0) - (a.fable?.alta_pending || 0),
+        fable_pend_desc: (a, b) => ((b.fable?.total || 0) - (b.fable?.done || 0)) - ((a.fable?.total || 0) - (a.fable?.done || 0)),
+      };
+      const cmp = sorters[this.projectSort] || sorters.name_asc;
+      return [...out].sort(cmp);
     },
     statCardActiveClass(color) {
       const map = {
@@ -832,6 +956,8 @@ function hub() {
         behind: d.filter(p => p.git.is_repo && p.git.behind).length,
         pending: d.reduce((acc, p) => acc + (p.pending?.length || 0), 0),
         activeSessions: d.filter(p => (p.recent_sessions?.length || 0) > 0 || (p.active_tmux?.length || 0) > 0).length,
+        fablePending: d.filter(p => p.fable && !p.fable.no_findings && (p.fable.total - p.fable.done) > 0).length,
+        fableAlta:    d.filter(p => p.fable && (p.fable.alta_pending || 0) > 0).length,
       };
     },
     async loadProjects() {
@@ -884,24 +1010,6 @@ function hub() {
         return;
       }
       this.loadClaudeSessions();
-    },
-    async bulkDeleteTelCode() {
-      const days = this.bulkDays;
-      if (!window.confirm(`Borrar TODAS las sesiones tel-code más viejas que ${days} días?`)) return;
-      this.bulkResult = 'borrando…';
-      const r = await fetch('/api/claude-sessions/bulk-delete', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tag: 'tel-code', older_than_days: days }),
-      });
-      if (!r.ok) {
-        this.bulkResult = `error ${r.status}`;
-        return;
-      }
-      const data = await r.json();
-      this.bulkResult = `borradas: ${data.deleted_count}` + (data.failed.length ? ` · fallidas: ${data.failed.length}` : '');
-      this.loadClaudeSessions();
-      setTimeout(() => { this.bulkResult = ''; }, 5000);
     },
     relativeTime(epoch) {
       if (!epoch) return '';

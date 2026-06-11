@@ -8,6 +8,11 @@ PENDING_RE = re.compile(r"^\s*[-*]\s*\[ \]\s*(.+?)\s*$", re.MULTILINE)
 MAX_PENDING = 8
 MAX_SESSIONS = 6
 
+FABLE_FILE = "Propuestas-Fable.md"
+FABLE_HEADING_RE = re.compile(r"^###\s+F-\d+\.\s+.*?\[(ALTA|MEDIA|BAJA)\]", re.MULTILINE)
+FABLE_ESTADO_RE = re.compile(r"^-\s+\*\*Estado\*\*:\s*\[([ x])\]", re.MULTILINE)
+FABLE_NO_FINDINGS_RE = re.compile(r"##\s+Hallazgos\s*\n+Sin hallazgos\.", re.IGNORECASE)
+
 
 def _slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
@@ -58,6 +63,40 @@ def match_tmux(project_name: str, tmux_sessions: list[dict]) -> list[dict]:
     return [t for t in tmux_sessions if slug and slug in t["name"].lower()]
 
 
+def parse_fable(project_path: Path) -> dict | None:
+    """Parse Propuestas-Fable.md at project root.
+
+    Returns:
+        None if no file present.
+        {"no_findings": True} if the audit found nothing.
+        Otherwise {"total", "done", "alta_pending"}.
+    """
+    f = project_path / FABLE_FILE
+    if not f.is_file():
+        return None
+    try:
+        text = f.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if FABLE_NO_FINDINGS_RE.search(text):
+        return {"no_findings": True, "total": 0, "done": 0, "alta_pending": 0}
+    # Walk findings in order; each ### heading + first Estado line below it form a pair.
+    findings: list[tuple[str, str]] = []  # (severity, state_char)
+    pos = 0
+    headings = list(FABLE_HEADING_RE.finditer(text))
+    for i, m in enumerate(headings):
+        sev = m.group(1)
+        block_end = headings[i + 1].start() if i + 1 < len(headings) else len(text)
+        sub = text[m.end():block_end]
+        est = FABLE_ESTADO_RE.search(sub)
+        state = est.group(1) if est else " "
+        findings.append((sev, state))
+    total = len(findings)
+    done = sum(1 for _, s in findings if s == "x")
+    alta_pending = sum(1 for sev, s in findings if sev == "ALTA" and s != "x")
+    return {"no_findings": False, "total": total, "done": done, "alta_pending": alta_pending}
+
+
 def build(projects_list: list[dict]) -> list[dict]:
     sessions = claude_sessions.list_sessions()
     tmux_list = tmux_utils.list_sessions()
@@ -69,5 +108,6 @@ def build(projects_list: list[dict]) -> list[dict]:
             "pending": extract_pending(ppath),
             "recent_sessions": match_sessions(p["name"], ppath, sessions),
             "active_tmux": match_tmux(p["name"], tmux_list),
+            "fable": parse_fable(ppath),
         })
     return out
