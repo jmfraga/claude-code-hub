@@ -100,10 +100,11 @@
                   <span x-show="summaryLoading[p.name]">⏳</span>
                 </button>
                 <button @click="openFiles(p)" class="px-2 py-0.5 text-[10px] rounded border border-neutral-200 hover:bg-neutral-100" title="files">📁</button>
-                <span x-show="p.fable" :class="fablePillClass(p.fable)"
-                      :title="fablePillTitle(p.fable)"
-                      class="text-[10px] px-1.5 py-0.5 rounded border mono"
-                      x-text="fablePillLabel(p.fable)"></span>
+                <button x-show="p.fable" :class="fablePillClass(p.fable)"
+                        @click="openFable(p)"
+                        :title="fablePillTitle(p.fable)"
+                        class="text-[10px] px-1.5 py-0.5 rounded border mono hover:opacity-80 cursor-pointer"
+                        x-text="fablePillLabel(p.fable)"></button>
               </div>
             </div>
             <div class="text-[11px] text-neutral-500 mono truncate" x-text="p.path"></div>
@@ -530,6 +531,64 @@
     </div>
   </aside>
 
+  <!-- Fable drawer -->
+  <aside x-show="fableDrawer.open" x-cloak
+         class="fixed right-0 top-0 h-full w-full md:w-2/3 lg:w-1/2 bg-white border-l border-neutral-200 shadow-xl flex flex-col">
+    <div class="flex items-center justify-between p-4 border-b border-neutral-200 gap-3">
+      <div class="min-w-0 flex-1">
+        <div class="text-sm font-semibold flex items-center gap-2">
+          <span class="text-purple-600">Fable</span>
+          <span class="mono" x-text="fableDrawer.project?.name || '—'"></span>
+          <span x-show="fableDrawer.findings.length" class="text-xs text-neutral-500 font-normal">
+            <span x-text="fableDrawer.findings.filter(f => f.done).length"></span> /
+            <span x-text="fableDrawer.findings.length"></span> resueltos
+          </span>
+        </div>
+        <div class="text-xs text-neutral-500 mt-0.5" x-show="fableDrawer.noFindings">Auditoría sin hallazgos ✓</div>
+      </div>
+      <button @click="closeFable()" class="text-xs px-2 py-1 rounded border border-neutral-200 bg-white hover:bg-neutral-100 shrink-0">cerrar</button>
+    </div>
+    <div class="flex-1 overflow-auto p-3 space-y-2" x-show="!fableDrawer.loading">
+      <template x-for="f in fableDrawer.findings" :key="f.id">
+        <div class="border rounded-lg p-3" :class="f.done ? 'bg-emerald-50 border-emerald-200' : (f.severity === 'ALTA' ? 'bg-red-50 border-red-200' : f.severity === 'MEDIA' ? 'bg-amber-50 border-amber-200' : 'bg-white border-neutral-200')">
+          <div class="flex items-start gap-2">
+            <input type="checkbox" :checked="f.done"
+                   :disabled="fableDrawer.savingId === f.id"
+                   @change="toggleFable(f, $event.target.checked)"
+                   class="mt-1 w-4 h-4 shrink-0 cursor-pointer" />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-[10px] mono px-1.5 py-0.5 rounded border"
+                      :class="f.severity === 'ALTA' ? 'bg-red-100 text-red-700 border-red-300' : f.severity === 'MEDIA' ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-neutral-100 text-neutral-700 border-neutral-300'"
+                      x-text="f.id + ' · ' + f.severity"></span>
+                <span class="text-[10px] mono px-1.5 py-0.5 rounded border bg-neutral-100 text-neutral-600 border-neutral-300" x-text="f.dimension" x-show="f.dimension"></span>
+                <span class="text-[10px] text-neutral-500" x-text="f.esfuerzo" x-show="f.esfuerzo"></span>
+              </div>
+              <div class="text-sm font-medium mt-1" x-text="f.title"></div>
+              <div class="text-[11px] text-neutral-500 mt-1 mono" x-show="f.estado_note" x-text="f.estado_note"></div>
+              <div class="mt-2" x-show="!f.done">
+                <input type="text"
+                       x-model="fableDrawer.commitInputs[f.id]"
+                       placeholder="commit (opcional, 7-40 hex)"
+                       class="text-[11px] mono px-2 py-1 border border-neutral-300 rounded w-48" />
+              </div>
+              <details class="mt-2 text-xs">
+                <summary class="cursor-pointer text-neutral-500 hover:text-neutral-700 select-none">detalles</summary>
+                <div class="mt-2 space-y-1.5 text-[12px] text-neutral-700">
+                  <div><span class="font-semibold">Evidencia:</span> <span x-text="f.evidencia"></span></div>
+                  <div><span class="font-semibold">Propuesta:</span> <span x-text="f.propuesta"></span></div>
+                </div>
+              </details>
+            </div>
+          </div>
+        </div>
+      </template>
+      <div x-show="!fableDrawer.findings.length && !fableDrawer.noFindings && !fableDrawer.loading" class="text-sm text-neutral-500 p-4 text-center">(sin hallazgos cargados)</div>
+    </div>
+    <div x-show="fableDrawer.loading" class="flex-1 flex items-center justify-center text-sm text-neutral-500">cargando…</div>
+    <div x-show="fableDrawer.toast" class="px-4 py-2 border-t border-neutral-200 text-xs mono" :class="fableDrawer.toastError ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'" x-text="fableDrawer.toast"></div>
+  </aside>
+
   <!-- Output drawer (SSE) -->
   <aside x-show="drawer.open" x-cloak
          class="fixed right-0 top-0 h-full w-full md:w-1/2 bg-white border-l border-neutral-200 shadow-xl flex flex-col">
@@ -588,6 +647,7 @@ function hub() {
     copyToast: '',
     drawer: { open: false, title: '', subtitle: '', es: null },
     filesDrawer: { open: false, project: null, subpath: '', entries: [], fileContent: '', fileBinary: false, fileSize: 0, openedFile: '' },
+    fableDrawer: { open: false, project: null, findings: [], noFindings: false, loading: false, savingId: '', commitInputs: {}, toast: '', toastError: false },
     ttydURL: `http://${location.hostname}:8082/?arg=new-session&arg=-A&arg=-s&arg=shared`,
 
     init() {
@@ -1171,6 +1231,66 @@ function hub() {
     },
     closeFiles() {
       this.filesDrawer.open = false;
+    },
+    async openFable(p) {
+      this.fableDrawer.open = true;
+      this.fableDrawer.project = p;
+      this.fableDrawer.findings = [];
+      this.fableDrawer.noFindings = false;
+      this.fableDrawer.commitInputs = {};
+      this.fableDrawer.toast = '';
+      this.fableDrawer.loading = true;
+      try {
+        const r = await fetch(`/api/projects/${encodeURIComponent(p.name)}/fable?_t=${Date.now()}`, { cache: 'no-store' });
+        if (!r.ok) {
+          this.fableDrawer.toast = `Error ${r.status} cargando`;
+          this.fableDrawer.toastError = true;
+        } else {
+          const data = await r.json();
+          this.fableDrawer.findings = data.findings || [];
+          this.fableDrawer.noFindings = !!data.no_findings;
+        }
+      } catch (e) {
+        this.fableDrawer.toast = `Error de red: ${e.message}`;
+        this.fableDrawer.toastError = true;
+      } finally {
+        this.fableDrawer.loading = false;
+      }
+    },
+    closeFable() {
+      this.fableDrawer.open = false;
+      // Refresh dashboard so pills reflect any changes
+      this.loadDashboard();
+    },
+    async toggleFable(f, done) {
+      const commit = (this.fableDrawer.commitInputs[f.id] || '').trim();
+      this.fableDrawer.savingId = f.id;
+      this.fableDrawer.toast = '';
+      try {
+        const r = await fetch(`/api/projects/${encodeURIComponent(this.fableDrawer.project.name)}/fable/${f.id}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ done, commit }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.fableDrawer.toast = `❌ ${f.id}: ${data.detail || r.status}`;
+          this.fableDrawer.toastError = true;
+        } else {
+          f.done = done;
+          const today = new Date().toISOString().slice(0, 10);
+          f.estado_note = done ? `implementado ${today}${commit ? ' · commit ' + commit : ''}` : 'pendiente';
+          if (done) this.fableDrawer.commitInputs[f.id] = '';
+          this.fableDrawer.toast = `✓ ${f.id} ${done ? 'marcado como resuelto' : 'reabierto'}`;
+          this.fableDrawer.toastError = false;
+          setTimeout(() => { if (this.fableDrawer.toast.startsWith('✓ ' + f.id)) this.fableDrawer.toast = ''; }, 2500);
+        }
+      } catch (e) {
+        this.fableDrawer.toast = `❌ red: ${e.message}`;
+        this.fableDrawer.toastError = true;
+      } finally {
+        this.fableDrawer.savingId = '';
+      }
     },
     async openTmux(projectName) {
       const sessionName = projectName.replace(/[^a-zA-Z0-9-]/g, '-').slice(0, 40);

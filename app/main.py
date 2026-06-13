@@ -1,6 +1,4 @@
 import asyncio
-import os
-import shutil
 from pathlib import Path
 
 import yaml
@@ -8,27 +6,10 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from . import agents, claude_sessions, dashboard, git_utils, jobs, llm, projects, tmux_utils
+from . import agents, claude_sessions, dashboard, fable, git_utils, jobs, llm, projects, tmux_utils
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = BASE_DIR / "config" / "settings.yaml"
-
-
-def _claude_bin() -> str:
-    """Locate the `claude` CLI. Override with CCHUB_CLAUDE_BIN env var."""
-    override = os.environ.get("CCHUB_CLAUDE_BIN")
-    if override:
-        return override
-    found = shutil.which("claude")
-    if found:
-        return found
-    candidate = Path.home() / ".local" / "bin" / "claude"
-    return str(candidate)
-
-
-def _shell() -> str:
-    return os.environ.get("CCHUB_SHELL") or os.environ.get("SHELL") or "/bin/sh"
-
 
 app = FastAPI(title="Claude Code Hub")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -236,6 +217,35 @@ async def api_agent_file(path: str):
     return detail
 
 
+@app.get("/api/projects/{name}/fable")
+async def api_project_fable(name: str):
+    s = load_settings()
+    plist = projects.scan(Path(s["projects_root"]).expanduser(), s.get("extra_projects", []) or [])
+    proj = projects.find(plist, name)
+    if not proj:
+        raise HTTPException(404, "project not found")
+    detail = fable.read_findings(Path(proj["path"]))
+    if detail is None:
+        raise HTTPException(404, "Propuestas-Fable.md not present")
+    return detail
+
+
+@app.post("/api/projects/{name}/fable/{f_id}")
+async def api_project_fable_set(name: str, f_id: str, payload: dict):
+    s = load_settings()
+    plist = projects.scan(Path(s["projects_root"]).expanduser(), s.get("extra_projects", []) or [])
+    proj = projects.find(plist, name)
+    if not proj:
+        raise HTTPException(404, "project not found")
+    done = bool(payload.get("done"))
+    commit = (payload.get("commit") or "").strip()
+    ok, msg = fable.set_status(Path(proj["path"]), f_id, done, commit)
+    if not ok:
+        code = 400 if msg in ("invalid finding id", "invalid commit hash") else 404
+        raise HTTPException(code, msg)
+    return {"ok": True, "id": f_id, "done": done}
+
+
 @app.get("/api/claude-sessions")
 async def api_claude_sessions():
     return claude_sessions.list_sessions()
@@ -261,7 +271,7 @@ async def api_claude_session_new(payload: dict):
         i += 1
         if i > 9:
             raise HTTPException(409, "too many sessions with similar name")
-    claude_bin = _claude_bin()
+    claude_bin = str(Path.home() / ".local" / "bin" / "claude")
     # Schedule /title <name> via send-keys after claude is up; then exec claude.
     # The pane stays alive on exit so the user reads any error.
     wrapped = (
@@ -272,7 +282,7 @@ async def api_claude_session_new(payload: dict):
     ok, msg = tmux_utils.new_session(
         name,
         Path.home(),
-        command=[_shell(), "-l", "-c", wrapped],
+        command=["/bin/zsh", "-l", "-c", wrapped],
     )
     if not ok:
         raise HTTPException(400, msg)
@@ -291,7 +301,7 @@ async def api_claude_session_resume(session_id: str):
         return {"name": name, "reused": True}
     # Wrap in zsh so the pane stays alive if claude exits (e.g. session already
     # locked by another instance) — user can read the error and Enter to close.
-    claude_bin = _claude_bin()
+    claude_bin = str(Path.home() / ".local" / "bin" / "claude")
     wrapped = (
         f"{claude_bin} --resume {session_id}; "
         "ec=$?; echo; echo \"[claude --resume exited with $ec — press Enter to close]\"; read"
@@ -299,7 +309,7 @@ async def api_claude_session_resume(session_id: str):
     ok, msg = tmux_utils.new_session(
         name,
         Path.home(),
-        command=[_shell(), "-l", "-c", wrapped],
+        command=["/bin/zsh", "-l", "-c", wrapped],
     )
     if not ok:
         raise HTTPException(400, msg)
@@ -313,22 +323,6 @@ async def api_claude_session_delete(session_id: str):
         code = 400 if msg == "invalid session id" else 404
         raise HTTPException(code, msg)
     return {"deleted": msg}
-
-
-@app.post("/api/claude-sessions/bulk-delete")
-async def api_claude_session_bulk_delete(payload: dict):
-    tag = payload.get("tag")
-    if tag is not None and not isinstance(tag, str):
-        raise HTTPException(400, "invalid tag")
-    older = payload.get("older_than_days")
-    if older is not None:
-        try:
-            older = int(older)
-            if older < 0:
-                raise ValueError
-        except (TypeError, ValueError):
-            raise HTTPException(400, "invalid older_than_days")
-    return claude_sessions.bulk_delete(tag=tag, older_than_days=older)
 
 
 @app.post("/api/projects/{name}/run/{cmd_id}")
