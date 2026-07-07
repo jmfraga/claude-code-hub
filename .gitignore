@@ -8,3 +8,13 @@ config/settings.yaml
 *.swp
 .idea/
 .vscode/
+
+# Secretos (hardening auditoría 2026-07-07)
+.env
+.env.*
+!.env.example
+secrets/
+credentials/
+*.key
+*token*.json
+tokens.json
